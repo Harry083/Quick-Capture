@@ -7,198 +7,212 @@
 <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
-<div class="app">
-  <header class="app-header">
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <span class="brand-mark">QC</span>
+      <span class="brand-text">Quick Capture</span>
+    </a>
+    <nav class="primary-nav">
+      <ul>
+        <li><a href="https://harrylsmallwood.com/quick-capture" target="_blank" rel="noopener">Guide</a></li>
+        <li><a class="nav-cta" href="https://github.com/Harry083/Quick-Capture" target="_blank" rel="noopener">GitHub ↗</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <p class="hero-eyebrow">TOOL‑006 · running locally, your evidence never leaves this machine</p>
     <h1>Quick Capture</h1>
-    <p class="subtitle">Fast forensic imaging to E01 · DD, with a quick bad-sector scan before you commit to a full read</p>
-  </header>
+    <p class="lede">Images a disk, partition or volume to E01 or DD as fast as the drive allows, with a quick bad-sector
+      scan before you commit to a full read. You get the hashes, a report and an acquisition log.</p>
+  </section>
 
   <div id="admin-banner" class="banner hidden"></div>
 
-  <main>
-    <section class="picker-row">
-      <div class="picker-card">
-        <div class="card-title-row">
-          <h2>Source <span class="hint">(device to image)</span></h2>
-          <button id="refresh-devices" class="browse-btn small-btn" title="Rescan devices">&#8635; Refresh</button>
-        </div>
-        <div class="segmented segmented-small filter-toggle" id="device-filter">
-          <button data-filter="physical" class="active">Physical <span class="count" data-count="physical"></span></button>
-          <button data-filter="logical">Logical <span class="count" data-count="logical"></span></button>
-        </div>
-        <div id="device-list" class="device-list">
-          <p class="placeholder">Scanning for devices…</p>
-        </div>
+  <section class="picker-row">
+    <div class="panel picker-card">
+      <div class="card-title-row">
+        <div class="panel-title">01 · Source</div>
+        <button id="refresh-devices" class="btn small-btn" type="button" title="Rescan devices">&#8635; Refresh</button>
+      </div>
+      <h2>Device to image <span class="hint">or an existing image file</span></h2>
+      <div class="tabs" id="device-filter" role="tablist">
+        <button type="button" role="tab" data-filter="physical" aria-selected="true">Physical <span class="count" data-count="physical"></span></button>
+        <button type="button" role="tab" data-filter="logical" aria-selected="false">Logical <span class="count" data-count="logical"></span></button>
+      </div>
+      <div id="device-list" class="device-list">
+        <p class="placeholder">Scanning for devices…</p>
+      </div>
+      <div class="path-input-row">
+        <input type="text" id="source-input" class="path-input" placeholder="\\.\PhysicalDrive1  or  /dev/sdb  or an image file" />
+        <button class="btn browse-btn" id="browse-source" type="button" data-browse="file">Browse…</button>
+      </div>
+      <div class="file-status" id="source-status"></div>
+    </div>
+
+    <div class="panel picker-card scan-card">
+      <div class="card-title-row">
+        <div class="panel-title">02 · Scan</div>
+        <span id="scan-summary" class="pill"></span>
+      </div>
+      <h2>Bad-sector check <span class="hint">optional</span></h2>
+      <div class="scan-options" id="scan-options"></div>
+      <label class="check scan-toggle"><input type="checkbox" id="scan-enabled" /><span>Scan automatically before imaging</span></label>
+      <p class="inline-note scan-note">If the scan finds unreadable sectors or SMART defects, imaging pauses and asks before continuing.</p>
+      <div class="scan-actions">
+        <button id="scan-btn" class="btn" type="button" disabled>Scan only</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel details-card">
+    <div class="panel-title">03 · Image</div>
+    <h2>Image details <span class="hint">where it goes and how it's written</span></h2>
+    <div class="details-grid">
+      <div class="details-field">
+        <label class="field-label" for="output-input">Output folder</label>
         <div class="path-input-row">
-          <input type="text" id="source-input" class="path-input" placeholder="\\.\PhysicalDrive1  or  /dev/sdb  or an existing image file" />
-          <button class="browse-btn" id="browse-source">Browse…</button>
+          <input type="text" id="output-input" class="path-input" placeholder="D:\Evidence\Case-001" />
+          <button class="btn browse-btn" id="browse-output" type="button" data-browse="folder">Browse…</button>
         </div>
-        <div class="file-status" id="source-status"></div>
+        <div class="file-status" id="output-status"></div>
       </div>
+      <div class="details-field">
+        <label class="field-label" for="name-input">Image name</label>
+        <input type="text" id="name-input" class="path-input full" placeholder="EV001" value="image" />
+      </div>
+    </div>
+    <div class="controls-row options-row">
+      <div class="model-select-label">
+        Format
+        <div class="tabs" id="format-toggle" role="tablist">
+          <button type="button" role="tab" data-format="e01" aria-selected="true">E01 <span class="hint">EnCase</span></button>
+          <button type="button" role="tab" data-format="dd" aria-selected="false">DD <span class="hint">raw</span></button>
+        </div>
+      </div>
+      <label class="model-select-label" id="compression-label">
+        E01 compression
+        <select id="compression-select">
+          <option value="fast">Fast (recommended)</option>
+          <option value="none">None (largest file)</option>
+          <option value="best">Best (slowest)</option>
+        </select>
+      </label>
+      <label class="model-select-label">
+        Split into
+        <select id="segment-select">
+          <option value="0">No split</option>
+          <option value="2048">2 GiB segments</option>
+          <option value="4000">4000 MiB (FAT32)</option>
+          <option value="1500">1500 MiB</option>
+          <option value="650">650 MiB</option>
+        </select>
+      </label>
+      <label class="model-select-label">
+        Read block
+        <select id="block-select"></select>
+      </label>
+      <label class="model-select-label" title="How many reads are kept queued at the drive. 2 suits most drives; try 4 or 8 for NVMe.">
+        Reads in flight
+        <select id="depth-select"></select>
+      </label>
+    </div>
+    <div class="controls-row options-row">
+      <div class="model-select-label" title="Hashes run in parallel, one core each. MD5 tops out around 600-900 MB/s, so on NVMe sources use SHA-1 or SHA-256 alone for more speed. E01 embeds MD5 (and SHA-1) only when MD5 is selected.">
+        <span>Hash algorithms <span class="hint-inline">MD5 caps speed on NVMe</span></span>
+        <div class="check-row" id="hash-checks">
+          <label class="check"><input type="checkbox" value="md5" checked /><span>MD5</span></label>
+          <label class="check"><input type="checkbox" value="sha1" checked /><span>SHA-1</span></label>
+          <label class="check"><input type="checkbox" value="sha256" /><span>SHA-256</span></label>
+        </div>
+      </div>
+      <label class="check verify-check"><input type="checkbox" id="verify-check" /><span>Verify image after</span></label>
+    </div>
+  </section>
 
-      <div class="picker-card scan-card">
-        <div class="card-title-row">
-          <h2>Scan <span class="hint">(optional: check for bad sectors)</span></h2>
-          <span id="scan-summary" class="pill"></span>
-        </div>
-        <div class="scan-options" id="scan-options"></div>
-        <label class="check-inline scan-toggle"><input type="checkbox" id="scan-enabled" /> Scan automatically before imaging</label>
-        <p class="scan-note">If the scan finds unreadable sectors or SMART defects, imaging pauses and asks before continuing.</p>
-        <div class="scan-actions">
-          <button id="scan-btn" class="secondary-btn" disabled>Scan</button>
-        </div>
-      </div>
-    </section>
+  <details class="panel case-details">
+    <summary>
+      <div class="panel-title">04 · Case</div>
+      <h2>Case details <span class="hint">stored in the E01 header and the report</span></h2>
+    </summary>
+    <div class="case-grid">
+      <label class="field-label">Case number<input type="text" class="path-input full" data-case="case_number" /></label>
+      <label class="field-label">Evidence number<input type="text" class="path-input full" data-case="evidence_number" /></label>
+      <label class="field-label">Examiner<input type="text" class="path-input full" data-case="examiner" /></label>
+      <label class="field-label">Description<input type="text" class="path-input full" data-case="description" /></label>
+      <label class="field-label wide">Notes<input type="text" class="path-input full" data-case="notes" /></label>
+    </div>
+  </details>
 
-    <section class="details-card">
-      <h2>Image details</h2>
-      <div class="details-grid">
-        <div class="details-field span-2">
-          <label class="field-label" for="output-input">Output folder</label>
-          <div class="path-input-row">
-            <input type="text" id="output-input" class="path-input" placeholder="D:\Evidence\Case-001" />
-            <button class="browse-btn" id="browse-output">Browse…</button>
-          </div>
-          <div class="file-status" id="output-status"></div>
-        </div>
-        <div class="details-field">
-          <label class="field-label" for="name-input">Image name</label>
-          <input type="text" id="name-input" class="path-input full" placeholder="EV001" value="image" />
-        </div>
-      </div>
-      <div class="options-row">
-        <div class="model-select-label">
-          Format
-          <div class="segmented" id="format-toggle">
-            <button data-format="e01" class="active">E01 <span class="hint">EnCase</span></button>
-            <button data-format="dd">DD <span class="hint">raw</span></button>
-          </div>
-        </div>
-        <label class="model-select-label" id="compression-label">
-          E01 compression
-          <select id="compression-select">
-            <option value="fast">Fast (recommended)</option>
-            <option value="none">None (largest file)</option>
-            <option value="best">Best (slowest)</option>
-          </select>
-        </label>
-        <label class="model-select-label">
-          Split into
-          <select id="segment-select">
-            <option value="0">No split</option>
-            <option value="2048">2 GiB segments</option>
-            <option value="4000">4000 MiB (FAT32)</option>
-            <option value="1500">1500 MiB</option>
-            <option value="650">650 MiB</option>
-          </select>
-        </label>
-        <label class="model-select-label">
-          Read block
-          <select id="block-select"></select>
-        </label>
-        <label class="model-select-label" title="How many reads are kept queued at the drive. 2 suits most drives; try 4 or 8 for NVMe.">
-          Reads in flight
-          <select id="depth-select"></select>
-        </label>
-      </div>
-      <div class="options-row hash-row">
-        <div class="model-select-label" title="Hashes run in parallel, one core each. MD5 tops out around 600-900 MB/s, so on NVMe sources use SHA-1 or SHA-256 alone for more speed. E01 embeds MD5 (and SHA-1) only when MD5 is selected.">
-          Hash algorithms <span class="hint-inline">(MD5 caps speed on NVMe)</span>
-          <div class="check-row" id="hash-checks">
-            <label><input type="checkbox" value="md5" checked /> MD5</label>
-            <label><input type="checkbox" value="sha1" checked /> SHA-1</label>
-            <label><input type="checkbox" value="sha256" /> SHA-256</label>
-          </div>
-        </div>
-        <label class="check-inline"><input type="checkbox" id="verify-check" /> Verify image after</label>
-      </div>
-    </section>
+  <section class="action-row">
+    <button id="cancel-btn" class="btn cancel-btn hidden" type="button">Cancel</button>
+    <button id="run-btn" class="btn btn-primary run-btn" type="button" disabled><span class="btn-icon" aria-hidden="true">▶</span>Image</button>
+  </section>
 
-    <details class="case-details">
-      <summary>Case details <span class="hint">(stored in the E01 header and the report)</span></summary>
-      <div class="case-grid">
-        <label class="field-label">Case number<input type="text" class="path-input full" data-case="case_number" /></label>
-        <label class="field-label">Evidence number<input type="text" class="path-input full" data-case="evidence_number" /></label>
-        <label class="field-label">Examiner<input type="text" class="path-input full" data-case="examiner" /></label>
-        <label class="field-label">Description<input type="text" class="path-input full" data-case="description" /></label>
-        <label class="field-label wide">Notes<input type="text" class="path-input full" data-case="notes" /></label>
-      </div>
+  <section id="progress-section" class="panel progress-section hidden">
+    <div class="progress-head">
+      <span id="progress-stage" class="progress-stage">Starting…</span>
+      <span id="progress-speed" class="progress-speed"></span>
+    </div>
+    <div class="progress-bar-track">
+      <div id="progress-bar-fill" class="progress-bar-fill"></div>
+    </div>
+    <div class="progress-label" id="progress-label"></div>
+  </section>
+
+  <section id="alert-section" class="panel alert-section hidden">
+    <h2>&#9888; The scan found problems with this device</h2>
+    <p class="alert-lead">Imaging will not retry bad sectors: unreadable sectors are zero-filled and logged.
+      A failing drive can get worse with every read, so consider an error-tolerant tool (e.g. ddrescue) instead.</p>
+    <ul id="alert-findings" class="findings"></ul>
+    <div class="alert-actions">
+      <button id="abort-btn" class="btn cancel-btn" type="button">Abort</button>
+      <button id="proceed-btn" class="btn warn-btn" type="button"><span class="btn-icon" aria-hidden="true">▶</span>Image Anyway</button>
+    </div>
+  </section>
+
+  <section id="error-section" class="error-section hidden"></section>
+
+  <section id="triage-section" class="panel results-section hidden">
+    <div class="results-header">
+      <h2>Scan results</h2>
+      <span id="triage-verdict" class="verdict"></span>
+    </div>
+    <div class="score-cards" id="triage-cards"></div>
+    <ul id="triage-findings" class="findings"></ul>
+    <details class="raw-details" id="smart-details">
+      <summary>SMART attributes</summary>
+      <div id="smart-table" class="metadata-panel"></div>
     </details>
+  </section>
 
-    <section class="action-row">
-      <button id="run-btn" class="run-btn" disabled>Image</button>
-      <button id="cancel-btn" class="cancel-btn hidden">Cancel</button>
-    </section>
-
-    <section id="progress-section" class="progress-section hidden">
-      <div class="progress-head">
-        <span id="progress-stage" class="progress-stage">Starting…</span>
-        <span id="progress-speed" class="progress-speed"></span>
+  <section id="results-section" class="panel results-section hidden">
+    <div class="results-header">
+      <h2>Acquisition complete</h2>
+      <div class="report-actions">
+        <a id="report-html-link" class="btn btn-primary report-btn" target="_blank" rel="noopener"><span class="btn-icon" aria-hidden="true">↗</span>View / Save Report</a>
+        <a id="report-json-link" class="btn report-btn">Download JSON</a>
       </div>
-      <div class="progress-bar-track">
-        <div id="progress-bar-fill" class="progress-bar-fill"></div>
-      </div>
-      <div class="progress-label" id="progress-label"></div>
-    </section>
-
-    <section id="alert-section" class="alert-section hidden">
-      <h2>&#9888; The scan found problems with this device</h2>
-      <p class="alert-lead">Imaging will not retry bad sectors: unreadable sectors are zero-filled and logged.
-        A failing drive can get worse with every read — consider an error-tolerant tool (e.g. ddrescue) instead.</p>
-      <ul id="alert-findings" class="findings"></ul>
-      <div class="alert-actions">
-        <button id="proceed-btn" class="run-btn warn-btn">Image Anyway</button>
-        <button id="abort-btn" class="cancel-btn">Abort</button>
-      </div>
-    </section>
-
-    <section id="error-section" class="error-section hidden"></section>
-
-    <section id="triage-section" class="results-section hidden">
-      <div class="results-header">
-        <h2>Scan results</h2>
-        <span id="triage-verdict" class="verdict"></span>
-      </div>
-      <div class="score-cards" id="triage-cards"></div>
-      <ul id="triage-findings" class="findings"></ul>
-      <details class="raw-details" id="smart-details">
-        <summary>SMART attributes</summary>
-        <div id="smart-table"></div>
-      </details>
-    </section>
-
-    <section id="results-section" class="results-section hidden">
-      <div class="results-header">
-        <h2>Acquisition Complete</h2>
-        <div class="report-actions">
-          <a id="report-html-link" class="report-btn" target="_blank" rel="noopener">View / Save Report</a>
-          <a id="report-json-link" class="report-btn report-btn-secondary">Download JSON</a>
-        </div>
-      </div>
-      <div class="score-cards" id="result-cards"></div>
-      <div id="hash-table" class="metadata-panel"></div>
-      <details class="raw-details">
-        <summary>Output files</summary>
-        <pre id="output-files"></pre>
-      </details>
-    </section>
-  </main>
-</div>
-
-<div id="browse-modal" class="modal hidden">
-  <div class="modal-content">
-    <div class="modal-header">
-      <span id="browse-modal-title">Select a folder</span>
-      <button id="browse-modal-close" class="modal-close">&times;</button>
     </div>
-    <div class="modal-toolbar">
-      <button id="browse-up-btn" title="Up one level">&uarr; Up</button>
-      <span id="browse-current-path" class="current-path"></span>
-      <button id="browse-select-btn" class="select-folder-btn">Use this folder</button>
-    </div>
-    <div id="browse-entries" class="browse-entries"></div>
+    <div class="score-cards" id="result-cards"></div>
+    <div id="hash-table" class="metadata-panel"></div>
+    <details class="raw-details">
+      <summary>Output files</summary>
+      <pre id="output-files" class="report-text"></pre>
+    </details>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>Quick Capture · a <a href="https://harrylsmallwood.com/tools" target="_blank" rel="noopener">Harry Smallwood tool</a></span>
+    <span class="mono">127.0.0.1:8758</span>
   </div>
-</div>
+</footer>
 
 <script src="/static/app.js"></script>
 </body>

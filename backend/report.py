@@ -121,44 +121,70 @@ def generate_report_html(job) -> str:
 <meta charset="UTF-8" />
 <title>Quick Capture Report — {_esc(job.id)}</title>
 <style>
+  /* Same tokens as the app (frontend/styles.css). Manrope loads while the app is running; saved copies fall
+     back to Segoe UI. */
+  @font-face {{
+    font-family: "Manrope";
+    src: url("/static/fonts/manrope-variable.woff2") format("woff2");
+    font-weight: 200 800;
+    font-display: swap;
+  }}
   :root {{
-    --bg: #0f1216; --panel: #171b21; --panel-2: #1e242c; --border: #2a313b;
-    --text: #e6e9ef; --text-dim: #9aa4b2; --accent: #7fa8ff; --good: #3ecf8e; --warn: #f5b942; --bad: #f05a5a;
+    --bg: #1c2023; --panel: #262c30; --panel-2: #30373c;
+    --border: rgba(255, 255, 255, 0.08); --border-strong: rgba(255, 255, 255, 0.14);
+    --text: #eef1f2; --text-dim: #a9b3b8; --text-faint: #7f8b91;
+    --accent: #e8793b; --accent-2: #f39a63; --good: #3ecf8e; --warn: #f5b942; --bad: #f05a5a;
+    --font-body: "Manrope", "Segoe UI", system-ui, -apple-system, sans-serif;
+    --font-mono: Consolas, "Cascadia Mono", "SFMono-Regular", monospace;
   }}
   * {{ box-sizing: border-box; }}
-  body {{ margin: 0; background: var(--bg); color: var(--text);
-          font-family: "Segoe UI", system-ui, -apple-system, sans-serif; font-size: 14px; }}
-  .wrap {{ max-width: 980px; margin: 0 auto; padding: 32px 20px 60px; }}
-  h1 {{ font-size: 22px; margin: 0 0 4px; }}
-  h2 {{ font-size: 16px; margin: 0 0 12px; }}
-  h3 {{ font-size: 12.5px; margin: 0 0 8px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }}
-  .meta-line {{ color: var(--text-dim); font-size: 12.5px; margin-bottom: 24px; }}
-  .muted {{ color: var(--text-dim); }}
-  .mono {{ font-family: Consolas, "Cascadia Mono", monospace; word-break: break-all; }}
-  .panel {{ background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-bottom: 20px; }}
-  .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }}
-  .card {{ background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }}
-  .card-label {{ color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }}
-  .card-value {{ font-size: 22px; font-weight: 700; }}
-  table {{ width: 100%; border-collapse: collapse; }}
-  td {{ padding: 4px 6px; border-bottom: 1px solid var(--border); word-break: break-word; vertical-align: top; }}
-  td:first-child {{ color: var(--text-dim); width: 34%; white-space: nowrap; }}
+  body {{ margin: 0; color: var(--text); font-family: var(--font-body); font-size: 15px; line-height: 1.6;
+          background: radial-gradient(90rem 40rem at 50% -12rem, rgba(154, 170, 178, 0.14), transparent 70%), var(--bg);
+          -webkit-font-smoothing: antialiased; }}
+  .wrap {{ max-width: 1000px; margin: 0 auto; padding: clamp(2rem, 1rem + 4vw, 4rem) clamp(1rem, 3vw, 2rem) 3rem; }}
+  h1, h2, h3 {{ line-height: 1.1; margin: 0 0 0.5em; }}
+  h1 {{ font-size: clamp(2rem, 1.4rem + 2.4vw, 3rem); font-weight: 500; letter-spacing: -0.035em; }}
+  h2 {{ font-size: 1.4rem; font-weight: 500; letter-spacing: -0.025em; margin-bottom: 1rem; }}
+  h3 {{ font-family: var(--font-mono); font-size: 0.72rem; font-weight: 400; color: var(--text-faint);
+        text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.8em; }}
+  .eyebrow {{ font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent-2); text-transform: uppercase;
+              letter-spacing: 0.08em; margin: 0 0 1rem; }}
+  .meta-line {{ font-family: var(--font-mono); color: var(--text-faint); font-size: 0.78rem; margin-bottom: 2rem; }}
+  .muted {{ color: var(--text-faint); font-family: var(--font-mono); font-size: 0.8rem; }}
+  .mono {{ font-family: var(--font-mono); font-size: 0.85rem; word-break: break-all; }}
+  .panel {{ background: var(--panel); border: 1px solid var(--border); border-radius: 28px;
+            padding: clamp(1.3rem, 1rem + 1.2vw, 2rem); margin-bottom: 14px; }}
+  .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }}
+  .card {{ background: var(--panel-2); border: 1px solid var(--border); border-radius: 18px; padding: 1.1rem 1.2rem; }}
+  .card-label {{ font-family: var(--font-mono); color: var(--accent-2); font-size: 0.72rem; text-transform: uppercase;
+                 letter-spacing: 0.08em; margin-bottom: 0.7rem; }}
+  .card-value {{ font-size: 1.7rem; font-weight: 500; line-height: 1; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; white-space: nowrap; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 0.9rem; }}
+  td {{ padding: 0.45em 0.6em 0.45em 0; border-bottom: 1px solid var(--border); word-break: break-word; vertical-align: top; }}
+  tr:last-child td {{ border-bottom: none; }}
+  td:first-child {{ color: var(--text-faint); font-family: var(--font-mono); font-size: 0.8rem; width: 34%; white-space: nowrap; }}
   td.bad {{ color: var(--bad); font-weight: 600; }}
-  .verdict {{ display: inline-block; font-weight: 700; padding: 4px 10px; border-radius: 6px; margin-bottom: 10px; }}
+  .verdict {{ display: inline-block; font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.08em;
+              padding: 0.4em 1em; border-radius: 999px; margin-bottom: 1rem; }}
   .verdict-clear {{ color: var(--good); border: 1px solid var(--good); }}
   .verdict-attention {{ color: var(--warn); border: 1px solid var(--warn); }}
-  .findings {{ padding-left: 18px; margin: 0 0 12px; }}
-  .finding-ok {{ color: var(--good); }} .finding-bad {{ color: var(--bad); }} .finding-info {{ color: var(--text-dim); }}
-  ul.files {{ margin: 0; padding-left: 18px; }}
+  .findings {{ list-style: none; padding: 0; margin: 0 0 1rem; }}
+  .finding {{ padding: 0.6rem 0 0.6rem 1rem; border-left: 2px solid var(--text-faint); border-bottom: 1px solid var(--border); }}
+  .finding-ok {{ border-left-color: var(--good); }} .finding-bad {{ border-left-color: var(--bad); }}
+  .finding strong {{ font-weight: 600; }}
+  ul.files {{ margin: 0; padding-left: 1.1rem; }}
+  .site-footer {{ color: var(--text-faint); font-size: 0.85rem; padding-top: 1.4rem; border-top: 1px solid var(--border); margin-top: 2rem; }}
   @media print {{
     body {{ background: white; color: black; }}
     .panel, .card {{ background: white; border-color: #ccc; }}
+    td:first-child, .card-label, .meta-line, .muted {{ color: #555; }}
   }}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Quick Capture Acquisition Report</h1>
+  <p class="eyebrow">Quick Capture · acquisition report</p>
+  <h1>Acquisition report</h1>
   <div class="meta-line">Generated {_esc(generated)} · job {_esc(ctx['job_id'])} · {_esc(ctx['tool'])}
     · {_esc(ctx['host']['node'])} ({_esc(ctx['host']['platform'])})</div>
 
@@ -217,6 +243,8 @@ def generate_report_html(job) -> str:
   </div>
 
   {f'''<div class="panel"><h2>Unreadable sectors (zero-filled)</h2><table>{bad_rows}</table></div>''' if bad_rows else ""}
+
+  <div class="site-footer">Quick Capture · a Harry Smallwood tool</div>
 </div>
 </body>
 </html>

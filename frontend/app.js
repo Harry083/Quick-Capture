@@ -5,8 +5,6 @@ const state = {
   format: "e01",
   devices: [],
   deviceFilter: "physical",
-  browseField: null,
-  browsePath: "",
   jobId: null,
   pollTimer: null,
   alertShownFor: null,
@@ -218,7 +216,7 @@ $("#refresh-devices").addEventListener("click", loadDevices);
 document.querySelectorAll("#device-filter button").forEach((btn) => {
   btn.addEventListener("click", () => {
     state.deviceFilter = btn.dataset.filter;
-    document.querySelectorAll("#device-filter button").forEach((b) => b.classList.toggle("active", b === btn));
+    document.querySelectorAll("#device-filter button").forEach((b) => b.setAttribute("aria-selected", String(b === btn)));
     renderDevices();
   });
 });
@@ -255,7 +253,7 @@ nameInput.addEventListener("input", updateButtons);
 document.querySelectorAll("#format-toggle button").forEach((btn) => {
   btn.addEventListener("click", () => {
     state.format = btn.dataset.format;
-    document.querySelectorAll("#format-toggle button").forEach((b) => b.classList.toggle("active", b === btn));
+    document.querySelectorAll("#format-toggle button").forEach((b) => b.setAttribute("aria-selected", String(b === btn)));
     $("#compression-label").classList.toggle("hidden", state.format !== "e01");
   });
 });
@@ -266,93 +264,33 @@ function updateButtons() {
   runBtn.disabled = busy || !(state.source && state.outputDir && nameInput.value.trim());
 }
 
-// ---------- Browse modal ----------
-const modal = $("#browse-modal");
-const browseEntries = $("#browse-entries");
-const browseCurrentPath = $("#browse-current-path");
-const browseUpBtn = $("#browse-up-btn");
-const browseSelectBtn = $("#browse-select-btn");
-
-$("#browse-source").addEventListener("click", () => openBrowse("source"));
-$("#browse-output").addEventListener("click", () => openBrowse("output"));
-$("#browse-modal-close").addEventListener("click", closeBrowse);
-modal.addEventListener("click", (e) => {
-  if (e.target === modal) closeBrowse();
-});
-browseSelectBtn.addEventListener("click", () => {
-  if (!state.browsePath) return;
-  setOutput(state.browsePath);
-  closeBrowse();
-});
-
-function parentOf(path) {
-  const trimmed = path.replace(/[\\/]+$/, "");
-  const idx = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));
-  return idx >= 0 ? trimmed.substring(0, idx + 1) : "";
-}
-
-function openBrowse(field) {
-  state.browseField = field;
-  $("#browse-modal-title").textContent = field === "output" ? "Select output folder" : "Select an image file as source";
-  browseSelectBtn.classList.toggle("hidden", field !== "output");
-  modal.classList.remove("hidden");
-  const start = field === "output" ? state.outputDir : state.source && !state.source.startsWith("\\\\.\\") && !state.source.startsWith("/dev/") ? parentOf(state.source) : "";
-  loadBrowse(start);
-}
-
-function closeBrowse() {
-  modal.classList.add("hidden");
-}
-
-async function loadBrowse(path) {
-  browseEntries.innerHTML = `<div class="browse-entry"><span class="name">Loading…</span></div>`;
-  try {
-    const mode = state.browseField === "output" ? "dir" : "file";
-    const res = await fetch(`/api/browse?path=${encodeURIComponent(path || "")}&mode=${mode}`);
-    if (!res.ok) throw new Error("Could not list directory");
-    const data = await res.json();
-    state.browsePath = data.path;
-    browseCurrentPath.textContent = data.path || "Drives";
-    browseUpBtn.disabled = !data.parent && !data.path;
-    browseSelectBtn.disabled = !data.path;
-
-    let html = "";
-    if (data.parent !== null && data.parent !== undefined) {
-      html += entryRow({ name: "..", path: data.parent, type: "dir" });
-    } else if (data.path) {
-      html += entryRow({ name: "..", path: "", type: "dir" });
-    }
-    for (const e of data.entries) html += entryRow(e);
-    browseEntries.innerHTML = html || `<div class="browse-entry"><span class="name">(empty)</span></div>`;
-
-    browseEntries.querySelectorAll(".browse-entry[data-type='dir']").forEach((el) => {
-      el.addEventListener("click", () => loadBrowse(el.dataset.path));
-    });
-    browseEntries.querySelectorAll(".browse-entry[data-type='file']").forEach((el) => {
-      el.addEventListener("click", () => {
-        setSource(el.dataset.path);
-        closeBrowse();
+// ---------- Browse (the OS file / folder dialog, opened by the server) ----------
+document.querySelectorAll(".browse-btn").forEach((btn) =>
+  btn.addEventListener("click", async () => {
+    const input = btn.closest(".path-input-row").querySelector(".path-input");
+    const isDevice = input.value.startsWith("\\\\.\\") || input.value.startsWith("/dev/");
+    btn.disabled = true;
+    try {
+      const res = await fetch("/api/browse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: btn.dataset.browse || "file", start: isDevice ? "" : input.value }),
       });
-    });
-  } catch (e) {
-    browseEntries.innerHTML = `<div class="browse-entry"><span class="name">Error: ${escapeHtml(e.message)}</span></div>`;
-  }
-}
-
-function entryRow(entry) {
-  const icon = entry.type === "dir" ? "&#128193;" : "&#128190;";
-  const size = entry.type === "file" ? `<span class="size">${formatBytes(entry.size)}</span>` : "";
-  return `<div class="browse-entry" data-type="${entry.type}" data-path="${escapeHtml(entry.path)}">
-    <span class="icon">${icon}</span>
-    <span class="name">${escapeHtml(entry.name)}</span>
-    ${size}
-  </div>`;
-}
-
-browseUpBtn.addEventListener("click", () => {
-  if (!state.browsePath) return;
-  loadBrowse(parentOf(state.browsePath));
-});
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Could not open the file dialog");
+      if (data.path) {
+        input.value = data.path;
+        input.dispatchEvent(new Event("change"));
+      }
+    } catch (e) {
+      const statusEl = btn.closest(".picker-card, .details-field").querySelector(".file-status");
+      statusEl.textContent = e.message;
+      statusEl.className = "file-status err";
+    } finally {
+      btn.disabled = false;
+    }
+  })
+);
 
 // ---------- Run ----------
 runBtn.addEventListener("click", () => start(false));
@@ -480,9 +418,12 @@ function updateProgress(job) {
   }
 }
 
+const LEVEL_LABELS = { ok: "OK", bad: "Problem", info: "Note" };
+
 function findingsHtml(findings) {
   return findings
-    .map((f) => `<li class="lvl-${f.level}"><strong>${escapeHtml(f.title)}</strong> <span class="detail">— ${escapeHtml(f.detail)}</span></li>`)
+    .map((f) => `<li data-level="${escapeHtml(f.level)}"><span class="level">${LEVEL_LABELS[f.level] || escapeHtml(f.level)}</span>
+      <strong>${escapeHtml(f.title)}</strong><span>${escapeHtml(f.detail)}</span></li>`)
     .join("");
 }
 

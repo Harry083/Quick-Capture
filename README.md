@@ -29,7 +29,10 @@ From an **elevated** command prompt:
 .venv\Scripts\python.exe run.py
 ```
 
-Then open http://localhost:8757. It uses a different port from Frame Guard, so both can run at once.
+Then open http://localhost:8758. It uses its own port, so it can run alongside the other tools (Frame Guard 8756,
+Model Forge 8757).
+
+**Browse…** opens the operating system's own file or folder dialog (via `tkinter`, which ships with Python).
 
 ## Workflow
 
@@ -131,10 +134,10 @@ quick-capture/
 │   ├── ewf.py            E01 (EnCase 6) writer + reader
 │   ├── jobs.py           background job manager (scan → decision → image → verify)
 │   ├── report.py         HTML/JSON report and the .txt acquisition log
-│   └── file_browser.py   server-side directory listing for the folder/file pickers
-├── frontend/             vanilla HTML/CSS/JS UI
+│   └── file_browser.py   folder lookup (free space) for the output folder
+├── frontend/             vanilla HTML/CSS/JS UI; styles.css + fonts/ are the shared tool style kit
 ├── tests/                pytest round-trip tests (python -m pytest tests)
-├── run.py                entry point (uvicorn, port 8757)
+├── run.py                entry point (uvicorn, port 8758)
 └── requirements.txt
 ```
 
