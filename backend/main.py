@@ -77,6 +77,38 @@ async def api_browse(path: str = Query(default=""), mode: str = Query(default="d
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+class BrowseRequest(BaseModel):
+    mode: str = "file"  # "file" or "folder"
+    start: str = ""
+
+
+def _native_browse(mode: str, start: str) -> str:
+    """Open the operating system's own file or folder dialog and return the chosen path ("" if cancelled)."""
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)  # otherwise the dialog can open behind the browser
+    start_dir = start if os.path.isdir(start) else os.path.dirname(start) or None
+    try:
+        if mode == "folder":
+            path = filedialog.askdirectory(parent=root, initialdir=start_dir)
+        else:
+            path = filedialog.askopenfilename(parent=root, initialdir=start_dir)
+    finally:
+        root.destroy()
+    return os.path.normpath(path) if path else ""
+
+
+@app.post("/api/browse")
+async def api_browse_dialog(req: BrowseRequest):
+    try:
+        return {"path": await asyncio.to_thread(_native_browse, req.mode, req.start)}
+    except Exception as exc:  # noqa: BLE001  (no display, or tkinter missing)
+        raise HTTPException(status_code=500, detail=f"Could not open the file dialog: {exc}") from exc
+
+
 class CaseInfo(BaseModel):
     case_number: str = ""
     evidence_number: str = ""
