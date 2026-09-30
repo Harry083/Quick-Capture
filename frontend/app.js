@@ -8,6 +8,7 @@ const state = {
   jobId: null,
   pollTimer: null,
   alertShownFor: null,
+  reportJobId: null,
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -67,6 +68,20 @@ function formatDuration(seconds) {
   return h ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m ${String(sec).padStart(2, "0")}s`;
 }
 
+// ---------- Backend calls ----------
+// The page talks to Python directly through pywebview's bridge; there is no HTTP server or port.
+const bridgeReady = new Promise((resolve) => {
+  if (window.pywebview && window.pywebview.api) resolve();
+  else window.addEventListener("pywebviewready", resolve, { once: true });
+});
+
+async function api(method, ...args) {
+  await bridgeReady;
+  const res = await window.pywebview.api[method](...args);
+  if (!res || !res.ok) throw new Error((res && res.error) || `${method} failed`);
+  return res.data;
+}
+
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
@@ -76,12 +91,11 @@ function escapeHtml(str) {
 // ---------- Health / options ----------
 async function loadHealth() {
   try {
-    const res = await fetch("/api/health");
-    const data = await res.json();
+    const data = await api("health");
     const banner = $("#admin-banner");
     const notes = [];
     if (!data.admin) {
-      notes.push("Not running as Administrator/root — physical devices can't be opened. Restart Quick Capture from an elevated prompt.");
+      notes.push("Not running as Administrator/root — physical devices can't be opened. Restart Quick Capture as Administrator (Windows) or with sudo/pkexec (Linux/macOS).");
     }
     if (!data.smartctl) {
       notes.push("smartctl not found — the scan will rely on reading sectors only. Install smartmontools for SMART health checks.");
@@ -96,8 +110,7 @@ async function loadHealth() {
 }
 
 async function loadOptions() {
-  const res = await fetch("/api/options");
-  const data = await res.json();
+  const data = await api("options");
   scanOptions.innerHTML = Object.keys(data.triage_modes)
     .filter((mode) => mode !== "skip" && SCAN_INFO[mode])
     .map((mode) => `<label class="scan-option">
@@ -136,9 +149,7 @@ scanEnabled.addEventListener("change", updateScanUi);
 async function loadDevices() {
   deviceList.innerHTML = `<p class="placeholder">Scanning for devices…</p>`;
   try {
-    const res = await fetch("/api/devices");
-    if (!res.ok) throw new Error((await res.json()).detail || "Device scan failed");
-    const data = await res.json();
+    const data = await api("devices");
     state.devices = data.devices;
     renderDevices();
   } catch (e) {
@@ -196,9 +207,7 @@ async function setSource(path) {
   statusEl.textContent = "Opening…";
   statusEl.className = "file-status";
   try {
-    const res = await fetch(`/api/source-info?path=${encodeURIComponent(path)}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Cannot open source");
+    const data = await api("source_info", path);
     state.sourceInfo = data;
     const dev = state.devices.find((d) => d.path === path);
     const sysWarn = dev && dev.system ? " — ⚠ this holds the running OS; contents will change while imaging" : "";
@@ -232,9 +241,7 @@ async function setOutput(path) {
     return;
   }
   try {
-    const res = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || "Folder not found");
+    const data = await api("folder_info", path);
     statusEl.textContent = data.free !== null ? `${formatBytes(data.free)} free` : "OK";
     statusEl.className = "file-status ok";
     if (state.sourceInfo && data.free !== null && data.free < state.sourceInfo.size) {
@@ -264,20 +271,14 @@ function updateButtons() {
   runBtn.disabled = busy || !(state.source && state.outputDir && nameInput.value.trim());
 }
 
-// ---------- Browse (the OS file / folder dialog, opened by the server) ----------
+// ---------- Browse (the OS file / folder dialog) ----------
 document.querySelectorAll(".browse-btn").forEach((btn) =>
   btn.addEventListener("click", async () => {
     const input = btn.closest(".path-input-row").querySelector(".path-input");
     const isDevice = input.value.startsWith("\\\\.\\") || input.value.startsWith("/dev/");
     btn.disabled = true;
     try {
-      const res = await fetch("/api/browse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: btn.dataset.browse || "file", start: isDevice ? "" : input.value }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Could not open the file dialog");
+      const data = await api("pick", btn.dataset.browse || "file", isDevice ? "" : input.value);
       if (data.path) {
         input.value = data.path;
         input.dispatchEvent(new Event("change"));
@@ -341,13 +342,7 @@ async function start(scanOnly) {
   };
 
   try {
-    const res = await fetch("/api/acquire", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json().catch(() => ({ detail: "Failed to start" }));
-    if (!res.ok) throw new Error(data.detail || "Failed to start");
+    const data = await api("acquire", body);
     state.jobId = data.job_id;
     cancelBtn.classList.remove("hidden");
     pollJob();
@@ -361,9 +356,9 @@ function pollJob() {
   if (state.pollTimer) clearInterval(state.pollTimer);
   state.pollTimer = setInterval(async () => {
     try {
-      const res = await fetch(`/api/jobs/${state.jobId}`);
-      if (!res.ok) throw new Error("Lost track of job");
-      const job = await res.json();
+      const job = await api("job", state.jobId).catch(() => {
+        throw new Error("Lost track of job");
+      });
       updateProgress(job);
       if (job.triage) showTriage(job.triage);
 
@@ -465,10 +460,7 @@ function showTriage(t) {
 function showResults(job) {
   const r = job.result;
   resultsSection.classList.remove("hidden");
-  $("#report-html-link").href = `/api/jobs/${job.id}/report.html`;
-  const jsonLink = $("#report-json-link");
-  jsonLink.href = `/api/jobs/${job.id}/report.json`;
-  jsonLink.setAttribute("download", `quick-capture-report-${job.id}.json`);
+  state.reportJobId = job.id;
 
   $("#result-cards").innerHTML =
     card("Average speed", formatSpeed(r.avg_speed)) +
@@ -491,10 +483,28 @@ function showResults(job) {
   $("#output-files").textContent = [...r.paths, r.log_path].filter(Boolean).join("\n");
 }
 
+// ---------- Reports ----------
+async function reportAction(btn, method, ...args) {
+  if (!state.reportJobId) return;
+  btn.disabled = true;
+  try {
+    const data = await api(method, state.reportJobId, ...args);
+    if (data.path) $("#output-files").textContent += `\n${data.path}`;
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$("#report-view-btn").addEventListener("click", (e) => reportAction(e.currentTarget, "view_report"));
+$("#report-html-btn").addEventListener("click", (e) => reportAction(e.currentTarget, "save_report", "html"));
+$("#report-json-btn").addEventListener("click", (e) => reportAction(e.currentTarget, "save_report", "json"));
+
 async function cancelJob() {
   if (!state.jobId) return;
   try {
-    await fetch(`/api/jobs/${state.jobId}/cancel`, { method: "POST" });
+    await api("cancel", state.jobId);
   } catch (e) {
     console.error(e);
   }
@@ -504,7 +514,7 @@ async function proceedJob() {
   if (!state.jobId) return;
   alertSection.classList.add("hidden");
   try {
-    await fetch(`/api/jobs/${state.jobId}/proceed`, { method: "POST" });
+    await api("proceed", state.jobId);
   } catch (e) {
     console.error(e);
   }

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Quick Capture
+Comment=Fast forensic imaging to E01 / DD
+# Edit the path to where you unpacked the build. pkexec asks for the root password (raw devices need root).
+Exec=sh -c 'pkexec env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" /opt/QuickCapture/QuickCapture'
+Icon=/opt/QuickCapture/quickcapture.png
+Terminal=false
+Categories=Utility;System;
