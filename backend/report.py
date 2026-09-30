@@ -2,6 +2,8 @@
 the image (the usual companion file examiners expect alongside an E01/DD)."""
 from __future__ import annotations
 
+import base64
+import functools
 import html
 import platform
 from datetime import datetime, timezone
@@ -9,7 +11,17 @@ from pathlib import Path
 
 from .ewf import APP_VERSION
 
+FONT_PATH = Path(__file__).resolve().parent.parent / "frontend" / "fonts" / "manrope-variable.woff2"
 HASH_LABELS = {"md5": "MD5", "sha1": "SHA-1", "sha256": "SHA-256"}
+
+
+@functools.lru_cache(maxsize=1)
+def _font_src() -> str:
+    """Manrope as a data: URI, so the report window and saved copies render in the app's font."""
+    try:
+        return "data:font/woff2;base64," + base64.b64encode(FONT_PATH.read_bytes()).decode("ascii")
+    except OSError:
+        return ""
 
 
 def _esc(value) -> str:
@@ -121,11 +133,11 @@ def generate_report_html(job) -> str:
 <meta charset="UTF-8" />
 <title>Quick Capture Report — {_esc(job.id)}</title>
 <style>
-  /* Same tokens as the app (frontend/styles.css). Manrope loads while the app is running; saved copies fall
-     back to Segoe UI. */
+  /* Same tokens as the app (frontend/styles.css). Manrope is embedded so saved copies keep it; if the font
+     file is missing they fall back to Segoe UI. */
   @font-face {{
     font-family: "Manrope";
-    src: url("/static/fonts/manrope-variable.woff2") format("woff2");
+    src: url("{_font_src()}") format("woff2");
     font-weight: 200 800;
     font-display: swap;
   }}

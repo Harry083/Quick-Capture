@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# PyInstaller output
+build/
+dist/
+
+# Test / tooling
+.pytest_cache/
+.coverage
+
+# OS / editor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
+
+# Forensic output: never commit evidence or reports
+*.E01
+*.Ex01
+*.dd
+*.raw
+*.img

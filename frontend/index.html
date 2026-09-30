@@ -4,13 +4,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Quick Capture</title>
-<link rel="stylesheet" href="/static/styles.css" />
+<link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 
 <header class="site-header">
   <div class="wrap">
-    <a class="brand" href="/">
+    <a class="brand" href="#">
       <span class="brand-mark">QC</span>
       <span class="brand-text">Quick Capture</span>
     </a>
@@ -194,8 +194,9 @@
     <div class="results-header">
       <h2>Acquisition complete</h2>
       <div class="report-actions">
-        <a id="report-html-link" class="btn btn-primary report-btn" target="_blank" rel="noopener"><span class="btn-icon" aria-hidden="true">↗</span>View / Save Report</a>
-        <a id="report-json-link" class="btn report-btn">Download JSON</a>
+        <button id="report-view-btn" class="btn btn-primary report-btn" type="button"><span class="btn-icon" aria-hidden="true">↗</span>View Report</button>
+        <button id="report-html-btn" class="btn report-btn" type="button">Save HTML</button>
+        <button id="report-json-btn" class="btn report-btn" type="button">Save JSON</button>
       </div>
     </div>
     <div class="score-cards" id="result-cards"></div>
@@ -210,10 +211,10 @@
 <footer class="site-footer">
   <div class="wrap">
     <span>Quick Capture · a <a href="https://harrylsmallwood.com/tools" target="_blank" rel="noopener">Harry Smallwood tool</a></span>
-    <span class="mono">127.0.0.1:8758</span>
+    <span class="mono">desktop · offline</span>
   </div>
 </footer>
 
-<script src="/static/app.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

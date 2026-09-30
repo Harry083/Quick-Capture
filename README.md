@@ -1,16 +1,24 @@
 # Quick Capture
 
-A local web app for **fast forensic imaging** of a disk, partition or volume to **E01** (EnCase 6) or **DD**
-(raw). It checks the device for bad sectors before imaging. A healthy drive is imaged straight away. If the
-drive has problems, you're alerted and asked whether to continue.
+A desktop application for **fast forensic imaging** of a disk, partition or volume to **E01** (EnCase 6) or
+**DD** (raw). It checks the device for bad sectors before imaging. A healthy drive is imaged straight away. If
+the drive has problems, you're alerted and asked whether to continue.
 
-Built in the same style as [Frame Guard](../README.md): a FastAPI backend and a vanilla HTML/CSS/JS frontend,
-with no build step.
+It opens in its own native window, using the operating system's web engine through
+[pywebview](https://pywebview.flowrl.com/) (Edge WebView2 on Windows, WebKit on macOS, WebKitGTK or Qt on
+Linux). **No web server runs and no network port is opened**: the window's JavaScript calls the Python
+backend directly. The UI is the same vanilla HTML/CSS/JS in the same style as
+[Frame Guard](../README.md), with no build step.
 
 ## Requirements
 
 - Python 3.10+
 - **Administrator (Windows) or root (Linux/macOS)**, needed to open physical devices
+- A system web engine:
+  - Windows 10/11: Edge WebView2, which is already installed.
+  - macOS: nothing extra.
+  - Linux: GTK and WebKit2GTK (e.g. `sudo apt install python3-gi gir1.2-webkit2-4.1`), or
+    `pip install "pywebview[qt]"`.
 - Optional: [`smartmontools`](https://www.smartmontools.org/) (`smartctl`) for SMART health checks during the
   scan. Without it, the scan relies on reading sectors alone.
 
@@ -21,18 +29,46 @@ python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-## Run
-
-From an **elevated** command prompt:
+## Run from source
 
 ```bash
-.venv\Scripts\python.exe run.py
+.venv\Scripts\python.exe app.py
 ```
 
-Then open http://localhost:8758. It uses its own port, so it can run alongside the other tools (Frame Guard 8756,
-Model Forge 8757).
+On Windows, if you aren't already elevated, Quick Capture relaunches itself through the UAC prompt. If you
+decline, it still opens, but shows a banner saying physical devices can't be opened. Pass `--no-elevate` to
+skip the prompt, or `--debug` to enable the web inspector.
 
-**Browse…** opens the operating system's own file or folder dialog (via `tkinter`, which ships with Python).
+On Linux/macOS, start it as root:
+
+```bash
+sudo -E .venv/bin/python app.py      # -E keeps DISPLAY / XAUTHORITY so the window can open
+```
+
+**Browse…** opens the operating system's own file or folder dialog, attached to the app window.
+
+## Build a standalone app
+
+```bash
+python -m pip install pyinstaller
+python -m PyInstaller --clean QuickCapture.spec
+```
+
+This builds a single file, `dist/QuickCapture.exe` (`dist/QuickCapture` on Linux/macOS), with the Quick Capture
+icon. It runs on another machine without Python installed. Each launch unpacks the app to a temp folder first,
+so it takes a second or two to open.
+
+- **Windows:** run `QuickCapture.exe`. Its manifest requests Administrator, so UAC prompts on every launch.
+  Pin it to the Start menu or taskbar like any other program.
+- **macOS:** raw disk access still needs root, so launch it with `sudo dist/QuickCapture`.
+- **Linux:** copy `dist/QuickCapture` and `quickcapture.png` to `/opt/QuickCapture/`, then install
+  `quick-capture.desktop` into `~/.local/share/applications/`. It launches through `pkexec`, which asks for
+  the root password.
+
+The icon lives in `quickcapture.ico` (every Windows size, 16–256 px) and `quickcapture.png` (1024 px). To use a
+different one, replace those two files and rebuild.
+
+PyInstaller builds for the OS it runs on, so build the Windows `.exe` on Windows.
 
 ## Workflow
 
@@ -51,8 +87,9 @@ The page has three boxes: **Source** and **Scan** side by side, and **Image deta
      was found. You choose **Image Anyway** or **Abort**.
 3. **Image details**: the output folder and image name, then the format (E01 or DD), E01 compression, split
    size, read block size, reads in flight, hash algorithms and verify.
-4. **Image**: when it finishes you get the hashes, speed and duration, a report (HTML/JSON), and an
-   acquisition log (`<name>.txt`) written next to the image.
+4. **Image**: when it finishes you get the hashes, speed and duration, and an acquisition log
+   (`<name>.txt`) written next to the image. **View Report** opens the HTML report in its own window.
+   **Save HTML** / **Save JSON** ask where to save it.
 
 ### Scan modes
 
@@ -127,7 +164,7 @@ Existing files are never overwritten. If a run is cancelled or fails, its partia
 ```
 quick-capture/
 ├── backend/
-│   ├── main.py           FastAPI app & routes
+│   ├── api.py            the methods the window calls (window.pywebview.api.*), with input validation
 │   ├── devices.py        device enumeration (Windows/Linux/macOS) and read-only raw access
 │   ├── triage.py         the scan: SMART, speed probe, sampled / full read
 │   ├── imager.py         threaded read → hash → write pipeline, bad-sector handling, verification
@@ -137,7 +174,10 @@ quick-capture/
 │   └── file_browser.py   folder lookup (free space) for the output folder
 ├── frontend/             vanilla HTML/CSS/JS UI; styles.css + fonts/ are the shared tool style kit
 ├── tests/                pytest round-trip tests (python -m pytest tests)
-├── run.py                entry point (uvicorn, port 8758)
+├── app.py                entry point: opens the native window (no server, no port)
+├── QuickCapture.spec     PyInstaller one-file build (Windows .exe requests Administrator)
+├── quickcapture.ico/.png the app icon
+├── quick-capture.desktop Linux menu launcher (via pkexec)
 └── requirements.txt
 ```
 
