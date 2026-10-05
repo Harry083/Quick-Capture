@@ -1044,7 +1044,7 @@ li[data-level="ok"] .level { color: var(--good); }
 }
 
 /* =========================================================
-   Quick Query: tool-specific rules (tokens only)
+   Deep Table: tool-specific rules (tokens only)
    ========================================================= */
 
 :root { --page-max: 1500px; }

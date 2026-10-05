@@ -48,7 +48,7 @@ def test_recovered_records_as_database(messages_db):
     case = Case(str(messages_db))
     try:
         deleted = [r for r in case.recover() if r["table"] == "contact" and r["status"] == "deleted"]
-        q = case.query("recovered", "SELECT qq_status, qq_source, name FROM contact WHERE qq_status = 'deleted' ORDER BY name")
+        q = case.query("recovered", "SELECT dt_status, dt_source, name FROM contact WHERE dt_status = 'deleted' ORDER BY name")
         assert [row[2]["v"] for row in q["rows"]] == sorted(r["values"][1] for r in deleted)
         assert {o["name"] for o in case.objects("recovered")} >= {"contact", "message"}
         with pytest.raises(CaseError):

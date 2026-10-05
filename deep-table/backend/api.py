@@ -328,7 +328,7 @@ class Api:
         html = report_mod.generate_html(self._c)
         if webview is None:
             raise ApiError("No window toolkit")
-        webview.create_window(f"Quick Query Report — {self._c.evidence['database'].original}", html=html,
+        webview.create_window(f"Deep Table Report — {self._c.evidence['database'].original}", html=html,
                               width=1100, height=900, background_color="#1c2023")
         return {"opened": True}
 

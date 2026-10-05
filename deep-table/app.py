@@ -1,4 +1,4 @@
-"""Launch Quick Query as a desktop application (a native window, no local web server or port)."""
+"""Launch Deep Table as a desktop application (a native window, no local web server or port)."""
 from __future__ import annotations
 
 import json
@@ -13,13 +13,13 @@ from backend.api import Api
 # PyInstaller unpacks bundled data to sys._MEIPASS; from source it sits next to this file.
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 FRONTEND_DIR = BASE_DIR / "frontend"
-ICON_PATH = BASE_DIR / ("quickquery.ico" if os.name == "nt" else "quickquery.png")
+ICON_PATH = BASE_DIR / ("deeptable.ico" if os.name == "nt" else "deeptable.png")
 
 
 def main() -> None:
     api = Api()
     window = webview.create_window(
-        "Quick Query",
+        "Deep Table",
         url=(FRONTEND_DIR / "index.html").as_uri(),  # file://, served by nothing
         js_api=api,
         width=1440,

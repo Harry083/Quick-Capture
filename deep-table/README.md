@@ -1,4 +1,4 @@
-# Quick Query
+# Deep Table
 
 A desktop application for **forensic examination of SQLite databases**: the live tables, the rows SQLite has
 deleted but not yet overwritten, earlier versions of rows from the write-ahead log and rollback journal, and
@@ -16,7 +16,7 @@ The originals are never opened by SQLite, and never written.
 1. When you open a database, its `-wal`, `-journal` and `-shm` companions are found automatically.
 2. Each file is hashed (MD5, SHA-1, SHA-256) and copied into a private temp folder. The copies are hashed
    again, and the case refuses to open if they don't match (e.g. if an app was writing to the file).
-3. Quick Query parses the copies itself (see `backend/sqlite_format.py`). For each **view** of the database it
+3. Deep Table parses the copies itself (see `backend/sqlite_format.py`). For each **view** of the database it
    builds its own page image: the main file only, the main file plus the WAL, the state at any single WAL
    commit, or the state before a journalled transaction. Each image is marked as a rollback-journal database,
    so SQLite never looks for or replays a WAL, and is opened `mode=ro&immutable=1` with `query_only` on.
@@ -34,7 +34,7 @@ the originals' hashes and modification times before and after a full session.
 | **Tables** | Every table and view with row counts, paging, sorting and full-text search across columns, plus the `CREATE` statement. |
 | **Views of the database** | With a WAL: *current* (as an app sees it), *main file only*, or *as of commit N* for every transaction in the WAL. With a journal: the database *before* the journalled transaction. |
 | **Deleted record recovery** | Carves records from freeblocks (where SQLite puts deleted cells), unallocated space in every b-tree page, including interior pages that were leaves before a split, freelist pages (trunk and leaf), freeblocks a defragmentation left unlinked, WAL frames (current and earlier checkpoint cycles), journal pages, and main-file rows the WAL has since replaced. Each record is classified **deleted**, **older version** or **live copy** by comparing it with the live table. Each record shows its page and offset, a confidence rating, which columns had to be inferred, and every other place it was found. |
-| **Recovered records as a database** | The recovered records are rebuilt into a database of their own (View → *Recovered records*): one table per source table, with the original columns plus `qq_status`, `qq_source`, `qq_location`, `qq_orig_rowid`, `qq_confidence` and `qq_also_found_in`. You can browse, search, join and report on them as if they were live. |
+| **Recovered records as a database** | The recovered records are rebuilt into a database of their own (View → *Recovered records*): one table per source table, with the original columns plus `dt_status`, `dt_source`, `dt_location`, `dt_orig_rowid`, `dt_confidence` and `dt_also_found_in`. You can browse, search, join and report on them as if they were live. |
 | **Search all** | One search across every column of every table, without writing SQL. Text matches whatever the case, the same bytes are found inside BLOBs, and recovered deleted records are searched too. Matching cells are highlighted, and each result links to its table already filtered. |
 | **WAL timeline** | Replays the WAL one transaction at a time, from the main file onwards, and lists every row each commit **inserted**, **updated** (with before → after for the changed columns) or **deleted**. Each change is shown with the row's own timestamp for timing context, and you can jump to the database as of that commit or bookmark the change. |
 | **WAL & journal** | Header, salts and checkpoint sequence; every frame with its page, owning table, commit and state (valid, uncommitted, bad checksum, older salt); transactions with the pages they touched; one click to view the database as of any commit. |
@@ -71,12 +71,12 @@ the originals' hashes and modification times before and after a full session.
   - Linux: GTK and WebKit2GTK (e.g. `sudo apt install python3-gi gir1.2-webkit2-4.1`), or
     `pip install "pywebview[qt]"`.
 
-No Administrator or root rights are needed. Quick Query only reads files you can already open.
+No Administrator or root rights are needed. Deep Table only reads files you can already open.
 
 ## Setup and run
 
 ```bash
-cd quick-query
+cd deep-table
 python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt     # Windows
 .venv\Scripts\python.exe app.py
@@ -92,11 +92,11 @@ python -m venv .venv
 
 ```bash
 python -m pip install pyinstaller
-python -m PyInstaller --clean QuickQuery.spec
+python -m PyInstaller --clean DeepTable.spec
 ```
 
-This builds a single file, `dist/QuickQuery.exe` (`dist/QuickQuery` on Linux/macOS), with the Quick Query icon.
-On Linux, copy it and `quickquery.png` to `/opt/QuickQuery/` and install `quick-query.desktop` into
+This builds a single file, `dist/DeepTable.exe` (`dist/DeepTable` on Linux/macOS), with the Deep Table icon.
+On Linux, copy it and `deeptable.png` to `/opt/DeepTable/` and install `deep-table.desktop` into
 `~/.local/share/applications/` (it registers for SQLite files). PyInstaller builds for the OS it runs on.
 
 ## Tests
@@ -118,7 +118,7 @@ The tests build real databases with the `sqlite3` module and check the following
 ## Project structure
 
 ```
-quick-query/
+deep-table/
 ├── backend/
 │   ├── api.py            the methods the window calls (window.pywebview.api.*)
 │   ├── session.py        a case: evidence copies + hashes, views, rows, SQL, search, recovery, timeline, bookmarks
@@ -131,9 +131,9 @@ quick-query/
 ├── frontend/             vanilla HTML/CSS/JS UI; styles.css + fonts/ are the shared tool style kit
 ├── tests/                pytest suite (python -m pytest tests)
 ├── app.py                entry point: opens the native window (no server, no port)
-├── QuickQuery.spec       PyInstaller one-file build
-├── quickquery.ico/.png   the app icon
-└── quick-query.desktop   Linux menu launcher
+├── DeepTable.spec       PyInstaller one-file build
+├── deeptable.ico/.png   the app icon
+└── deep-table.desktop   Linux menu launcher
 ```
 
 ## License

@@ -4,7 +4,7 @@ Evidence handling:
 - The originals are only ever read. They're hashed (MD5, SHA-1, SHA-256), copied into a private temp folder,
   and the copies are re-hashed to prove they match. Everything after that works on the copies.
 - The sqlite3 library never sees the evidence files or even the pristine copies. For each "view" of the
-  database (main file only, main file + WAL, or the database as of a given WAL commit) Quick Query builds its
+  database (main file only, main file + WAL, or the database as of a given WAL commit) Deep Table builds its
   own page image, marks it as a rollback-journal database so SQLite won't look for a WAL, and opens that
   image read-only with writes and ATTACH refused. So nothing can checkpoint, truncate or alter the evidence.
 """
@@ -152,7 +152,7 @@ class Case:
             raise CaseError(f"File not found: {path}")
         self.opened_at = _now()
         self.case_info = dict(case_info or {})
-        self.tmp = Path(tempfile.mkdtemp(prefix="quick-query-"))
+        self.tmp = Path(tempfile.mkdtemp(prefix="deep-table-"))
         self.blobs = BlobStore()
         self.tags: list[dict] = []
         self.saved_queries: list[dict] = []
@@ -625,7 +625,7 @@ class Case:
                 by_table.setdefault(r["table"], []).append(r)
             for table, rows in by_table.items():
                 cols = rows[0]["columns"]
-                meta = [(f"qq_{m}", t) for m, t in self.META_COLUMNS]
+                meta = [(f"dt_{m}", t) for m, t in self.META_COLUMNS]
                 taken = {c.lower() for c in cols}
                 meta = [(n if n.lower() not in taken else n + "_", t) for n, t in meta]
                 col_sql = ", ".join([f"{quote_ident(n)} {t}" for n, t in meta] +

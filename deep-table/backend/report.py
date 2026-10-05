@@ -13,7 +13,7 @@ from pathlib import Path
 
 from . import decoders
 
-APP_NAME = "Quick Query"
+APP_NAME = "Deep Table"
 APP_VERSION = "1.0.0"
 FONT_PATH = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent)) / "frontend" / "fonts" / "manrope-variable.woff2"
 HASH_LABELS = {"md5": "MD5", "sha1": "SHA-1", "sha256": "SHA-256"}
@@ -174,7 +174,7 @@ def generate_html(case) -> str:
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Quick Query Report — {_esc(f['name'])}</title>
+<title>Deep Table Report — {_esc(f['name'])}</title>
 <style>
   @font-face {{ font-family: "Manrope"; src: url("{_font_src()}") format("woff2"); font-weight: 200 800; font-display: swap; }}
   :root {{
@@ -226,7 +226,7 @@ def generate_html(case) -> str:
 </head>
 <body>
 <div class="wrap">
-  <p class="eyebrow">Quick Query · SQLite examination report</p>
+  <p class="eyebrow">Deep Table · SQLite examination report</p>
   <h1>{_esc(f['name'])}</h1>
   <div class="meta-line">Generated {_esc(ctx['generated'])} · {_esc(ctx['tool'])} · opened {_esc(s['opened_at'])} · {_esc(ctx['host'])}</div>
 

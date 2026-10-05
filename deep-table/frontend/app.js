@@ -1019,7 +1019,7 @@ $("#rec-as-db").addEventListener("click", () => {
   setView("recovered");
   switchTab("query");
   const t = state.rec.table || "message";
-  sqlInput.value = `SELECT * FROM "${t.replace(/"/g, '""')}"\nWHERE qq_status = 'deleted'\nORDER BY qq_orig_rowid;`;
+  sqlInput.value = `SELECT * FROM "${t.replace(/"/g, '""')}"\nWHERE dt_status = 'deleted'\nORDER BY dt_orig_rowid;`;
 });
 
 // ---------- WAL & journal ----------
