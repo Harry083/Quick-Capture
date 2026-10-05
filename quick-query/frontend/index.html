@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Quick Query</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#">
+      <span class="brand-mark">QQ</span>
+      <span class="brand-text">Quick Query</span>
+    </a>
+    <nav class="primary-nav">
+      <ul>
+        <li><a href="https://harrylsmallwood.com/quick-query" target="_blank" rel="noopener">Guide</a></li>
+        <li><a class="nav-cta" href="https://github.com/Harry083/Quick-Capture" target="_blank" rel="noopener">GitHub ↗</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero" id="hero">
+    <p class="hero-eyebrow">QQ · running locally, your evidence never leaves this machine</p>
+    <h1>Quick Query</h1>
+    <p class="lede">Opens a SQLite database without changing it and shows you everything in it: live tables, deleted
+      records carved from free space, earlier row versions from the WAL and journal, decoded BLOBs and timestamps.
+      Everything you bookmark goes into the report.</p>
+  </section>
+
+  <section class="picker-row">
+    <div class="panel picker-card">
+      <div class="card-title-row">
+        <div class="panel-title">01 · Evidence</div>
+        <span id="evidence-pill" class="pill">no database open</span>
+      </div>
+      <h2>SQLite database <span class="hint">its -wal and -journal are picked up automatically</span></h2>
+      <div class="path-input-row">
+        <input type="text" id="db-input" class="path-input" placeholder="C:\Evidence\sms.db  or  /cases/001/History" />
+        <button class="btn browse-btn" id="browse-db" type="button">Browse…</button>
+        <button class="btn btn-primary" id="open-btn" type="button" disabled><span class="btn-icon" aria-hidden="true">▶</span>Open</button>
+      </div>
+      <div class="file-status" id="db-status"></div>
+      <div id="evidence-list" class="evidence-list hidden"></div>
+    </div>
+
+    <details class="panel picker-card case-details" id="case-panel">
+      <summary>
+        <div class="panel-title">02 · Case</div>
+        <h2>Case details <span class="hint">shown in the report</span></h2>
+      </summary>
+      <div class="case-grid">
+        <label class="field-label">Case number<input type="text" class="path-input full" data-case="case_number" /></label>
+        <label class="field-label">Evidence number<input type="text" class="path-input full" data-case="evidence_number" /></label>
+        <label class="field-label">Examiner<input type="text" class="path-input full" data-case="examiner" /></label>
+        <label class="field-label">Description<input type="text" class="path-input full" data-case="description" /></label>
+        <label class="field-label wide">Notes<input type="text" class="path-input full" data-case="notes" /></label>
+      </div>
+    </details>
+  </section>
+
+  <section id="error-section" class="error-section hidden"></section>
+
+  <section id="overview" class="hidden">
+    <div id="notices"></div>
+    <div class="score-cards overview-cards" id="overview-cards"></div>
+  </section>
+
+  <section id="workspace" class="panel workspace hidden">
+    <div class="workspace-head">
+      <div class="tabs" id="main-tabs" role="tablist">
+        <button type="button" role="tab" data-tab="tables" aria-selected="true">Tables</button>
+        <button type="button" role="tab" data-tab="query" aria-selected="false">Query</button>
+        <button type="button" role="tab" data-tab="recovered" aria-selected="false">Recovered <span class="count" id="count-recovered"></span></button>
+        <button type="button" role="tab" data-tab="wal" aria-selected="false">WAL &amp; journal</button>
+        <button type="button" role="tab" data-tab="pages" aria-selected="false">Pages</button>
+        <button type="button" role="tab" data-tab="report" aria-selected="false">Bookmarks &amp; report <span class="count" id="count-tags"></span></button>
+      </div>
+      <label class="view-select" title="Which version of the database to read. With a WAL, each commit can be viewed on its own.">
+        <span>View</span>
+        <select id="view-select"></select>
+      </label>
+    </div>
+
+    <!-- Tables -->
+    <div class="tab-pane" data-pane="tables">
+      <div class="split">
+        <aside class="side-list">
+          <input type="search" id="table-filter" class="path-input full small-input" placeholder="Filter tables…" />
+          <div id="table-list" class="list-box"></div>
+        </aside>
+        <div class="split-main">
+          <div class="grid-toolbar">
+            <div class="grid-title"><span id="table-title">Choose a table</span> <span id="table-sub" class="hint-inline"></span></div>
+            <input type="search" id="row-search" class="path-input small-input" placeholder="Search rows…" />
+            <div class="pager" id="table-pager"></div>
+            <button class="btn small-btn" id="schema-btn" type="button" disabled>Schema</button>
+            <button class="btn small-btn" id="table-csv" type="button" disabled>Export CSV</button>
+          </div>
+          <pre id="schema-box" class="report-text schema-box hidden"></pre>
+          <div id="table-grid" class="grid-box"><p class="placeholder">Open a database, then choose a table.</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Query -->
+    <div class="tab-pane hidden" data-pane="query">
+      <details class="builder" id="builder">
+        <summary>Query builder <span class="hint-inline">pick a table, add joins found from foreign keys and naming, choose columns</span></summary>
+        <div class="builder-body">
+          <label class="model-select-label">Base table <select id="qb-table"></select></label>
+          <div class="qb-section">
+            <div class="field-label">Joins</div>
+            <div id="qb-joins" class="qb-joins"><p class="placeholder">Choose a base table.</p></div>
+          </div>
+          <div class="qb-section">
+            <div class="field-label">Columns <span class="hint-inline">timestamps can be converted in the SQL itself</span></div>
+            <div id="qb-columns" class="qb-columns"></div>
+          </div>
+          <div class="qb-actions"><button class="btn small-btn" id="qb-generate" type="button">Write SQL ↓</button></div>
+        </div>
+      </details>
+      <textarea id="sql-input" class="sql-input" spellcheck="false" placeholder="SELECT * FROM sqlite_master;   (Ctrl+Enter to run — the database is opened read-only)"></textarea>
+      <div class="query-actions">
+        <div class="chips" id="saved-queries"></div>
+        <span class="spacer"></span>
+        <button class="btn small-btn" id="save-query" type="button">Save query</button>
+        <button class="btn small-btn" id="query-csv" type="button">Export CSV</button>
+        <button class="btn small-btn cancel-btn hidden" id="cancel-query" type="button">Stop</button>
+        <button class="btn btn-primary" id="run-query" type="button"><span class="btn-icon" aria-hidden="true">▶</span>Run</button>
+      </div>
+      <div class="file-status" id="query-status"></div>
+      <div id="query-grid" class="grid-box"></div>
+    </div>
+
+    <!-- Recovered -->
+    <div class="tab-pane hidden" data-pane="recovered">
+      <p class="guide">Records carved from freeblocks, unallocated space and freelist pages, plus earlier versions of rows
+        from the main file, WAL frames and journal pages. Each one is compared with the live table: <strong>deleted</strong>
+        (the rowid is gone), <strong>older version</strong> (the row has since changed) or <strong>live</strong> (a copy of a row that's still there).</p>
+      <div class="split">
+        <aside class="side-list">
+          <div id="rec-table-list" class="list-box"><p class="placeholder">Not run yet.</p></div>
+        </aside>
+        <div class="split-main">
+          <div class="grid-toolbar">
+            <div class="tabs compact" id="rec-status">
+              <button type="button" data-status="" aria-selected="false">All</button>
+              <button type="button" data-status="deleted" aria-selected="true">Deleted</button>
+              <button type="button" data-status="older version" aria-selected="false">Older versions</button>
+              <button type="button" data-status="live" aria-selected="false">Live copies</button>
+            </div>
+            <select id="rec-source" class="small-select"><option value="">All sources</option></select>
+            <input type="search" id="rec-search" class="path-input small-input" placeholder="Search text…" />
+            <div class="pager" id="rec-pager"></div>
+            <button class="btn small-btn" id="rec-rerun" type="button">Re-run</button>
+            <button class="btn small-btn" id="rec-csv" type="button">Export CSV</button>
+          </div>
+          <div id="rec-grid" class="grid-box"><p class="placeholder">Choose a table.</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WAL & journal -->
+    <div class="tab-pane hidden" data-pane="wal">
+      <div id="wal-body"><p class="placeholder">No WAL or journal with this database.</p></div>
+    </div>
+
+    <!-- Pages -->
+    <div class="tab-pane hidden" data-pane="pages">
+      <div class="page-legend" id="page-legend"></div>
+      <div id="page-map" class="page-map"></div>
+      <div class="page-jump">
+        <label class="model-select-label inline">Go to page <input type="number" id="page-number" class="path-input small-input" min="1" /></label>
+        <button class="btn small-btn" id="page-go" type="button">Show</button>
+      </div>
+      <div id="page-detail" class="page-detail"></div>
+    </div>
+
+    <!-- Bookmarks & report -->
+    <div class="tab-pane hidden" data-pane="report">
+      <div class="results-header">
+        <h2>Bookmarks</h2>
+        <div class="report-actions">
+          <button id="report-view-btn" class="btn btn-primary report-btn" type="button"><span class="btn-icon" aria-hidden="true">↗</span>View Report</button>
+          <button id="report-html-btn" class="btn report-btn" type="button">Save HTML</button>
+          <button id="report-json-btn" class="btn report-btn" type="button">Save JSON</button>
+        </div>
+      </div>
+      <p class="guide">Bookmark rows with the ☆ in any grid. The report holds the evidence hashes, database header, every
+        bookmark with its values, your saved queries (re-run at report time), the recovered deleted records and the query log.</p>
+      <div id="tag-list" class="tag-list"><p class="placeholder">No bookmarks yet.</p></div>
+    </div>
+  </section>
+</main>
+
+<!-- BLOB / page viewer -->
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-content wide-modal">
+    <div class="modal-header">
+      <h2 id="modal-title">Viewer</h2>
+      <div class="modal-tools" id="modal-tools"></div>
+      <button class="modal-close" id="modal-close" type="button" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<!-- bookmark dialog -->
+<div id="tag-modal" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-content tag-modal">
+    <div class="modal-header">
+      <h2>Bookmark record</h2>
+      <button class="modal-close" id="tag-close" type="button" aria-label="Close">×</button>
+    </div>
+    <div class="modal-body">
+      <label class="field-label">Label
+        <input type="text" id="tag-label" class="path-input full" list="tag-labels" value="Relevant" maxlength="60" />
+        <datalist id="tag-labels"><option value="Relevant"></option><option value="Key evidence"></option><option value="Deleted message"></option><option value="Follow up"></option></datalist>
+      </label>
+      <label class="field-label">Note<textarea id="tag-note" class="path-input full tag-note" rows="3"></textarea></label>
+      <p class="inline-note" id="tag-what"></p>
+      <div class="alert-actions"><button id="tag-save" class="btn btn-primary" type="button">Save bookmark</button></div>
+    </div>
+  </div>
+</div>
+
+<div id="popover" class="popover hidden"></div>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>Quick Query · a <a href="https://harrylsmallwood.com/tools" target="_blank" rel="noopener">Harry Smallwood tool</a></span>
+    <span class="mono">desktop · offline · read-only</span>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

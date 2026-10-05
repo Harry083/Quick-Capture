@@ -10,6 +10,9 @@ Linux). **No web server runs and no network port is opened**: the window's JavaS
 backend directly. The UI is the same vanilla HTML/CSS/JS in the same style as
 [Frame Guard](../README.md), with no build step.
 
+> **Also in this repository:** [Quick Query](quick-query/README.md), a forensic SQLite viewer in the same style.
+> It recovers deleted records, shows WAL and journal history, and decodes BLOBs and timestamps.
+
 ## Requirements
 
 - Python 3.10+

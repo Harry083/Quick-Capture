@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Quick Query
+Comment=Forensic SQLite viewer: deleted records, WAL history, BLOBs and timestamps
+# Edit the path to where you unpacked the build.
+Exec=/opt/QuickQuery/QuickQuery %f
+Icon=/opt/QuickQuery/quickquery.png
+Terminal=false
+MimeType=application/vnd.sqlite3;application/x-sqlite3;
+Categories=Utility;Development;
