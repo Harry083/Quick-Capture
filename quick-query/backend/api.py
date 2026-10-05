@@ -22,9 +22,10 @@ try:  # the GUI toolkit isn't needed to import this module (tests use the API wi
     _FD = getattr(webview, "FileDialog", None)
     OPEN_DIALOG = _FD.OPEN if _FD else webview.OPEN_DIALOG
     SAVE_DIALOG = _FD.SAVE if _FD else webview.SAVE_DIALOG
+    FOLDER_DIALOG = _FD.FOLDER if _FD else webview.FOLDER_DIALOG
 except ImportError:  # pragma: no cover
     webview = None
-    OPEN_DIALOG = SAVE_DIALOG = None
+    OPEN_DIALOG = SAVE_DIALOG = FOLDER_DIALOG = None
 
 CASE_FIELDS = ("case_number", "evidence_number", "examiner", "description", "notes")
 DB_FILE_TYPES = ("SQLite databases (*.db;*.sqlite;*.sqlite3;*.db3;*.sqlitedb;*.storedata)", "All files (*.*)")
@@ -229,13 +230,44 @@ class Api:
     @_result
     def save_blob(self, blob_id: str):
         data = self._c.blob_bytes(blob_id)
-        info = decoders.detect_blob(data)
-        ext = {"image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp",
-               "application/x-bplist": "plist", "application/xml": "plist", "application/pdf": "pdf",
-               "application/zip": "zip", "application/gzip": "gz", "application/json": "json",
-               "text/plain": "txt", "image/heic": "heic", "video/mp4": "mp4", "application/vnd.sqlite3": "sqlite",
-               "audio/mp4": "m4a", "audio/amr": "amr"}.get(info["mime"], "bin")
+        ext = decoders.extension_for(decoders.detect_blob(data)["mime"])
         return self._write(self._save_dialog(f"blob-{blob_id[:10]}.{ext}", ext), data, binary=True)
+
+    @_result
+    def decode(self, blob_id: str, chain=None):
+        return self._c.blob(blob_id, list(chain or []))
+
+    @_result
+    def put_text(self, text: str):
+        return {"id": self._c.put_text(text)}
+
+    @_result
+    def transforms(self):
+        from .transforms import TRANSFORMS
+
+        return {"transforms": {k: v[0] for k, v in TRANSFORMS.items()}}
+
+    @_result
+    def blob_columns(self, view: str, table: str):
+        return {"columns": self._c.blob_columns(view, table)}
+
+    @_result
+    def export_blobs(self, view: str, table: str, column: str):
+        if self._window is None:
+            raise ApiError("No window to show a folder dialog in")
+        chosen = _first_path(self._window.create_file_dialog(FOLDER_DIALOG))
+        if not chosen:
+            return {"folder": ""}
+        return self._c.export_blobs(view, table, column, chosen)
+
+    # ---------- search / timeline ----------
+    @_result
+    def search_all(self, view: str, term: str):
+        return self._c.search_all(view, str(term or ""))
+
+    @_result
+    def timeline(self):
+        return self._c.timeline()
 
     # ---------- bookmarks ----------
     @_result

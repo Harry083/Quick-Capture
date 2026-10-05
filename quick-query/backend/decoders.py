@@ -144,6 +144,14 @@ SIGNATURES: list[tuple[bytes, int, str, str]] = [
     (b"ID3", 0, "MP3 audio", "audio/mpeg"),
     (b"#!AMR", 0, "AMR audio", "audio/amr"),
     (b"\x30\x82", 0, "DER (ASN.1) data", "application/x-x509-ca-cert"),
+    (b"mozLz40\x00", 0, "Mozilla jsonlz4", "application/x-mozlz4"),
+    (b"\x04\x22\x4d\x18", 0, "LZ4 frame", "application/x-lz4"),
+    (b"\xff\x06\x00\x00sNaPpY", 0, "Snappy stream", "application/x-snappy-framed"),
+    (b"\xac\xed\x00\x05", 0, "Java serialised object", "application/x-java-serialized-object"),
+    (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1", 0, "OLE compound file", "application/x-ole-storage"),
+    (b"regf", 0, "Windows registry hive", "application/x-registry-hive"),
+    (b"ABX\x00", 0, "Android binary XML (ABX)", "application/x-abx"),
+    (b"SEGB", 0, "Apple SEGB file", "application/x-segb"),
 ]
 
 
@@ -174,6 +182,8 @@ def detect_blob(data: bytes) -> dict:
     head = data[:64].lstrip()
     if head.startswith(b"<?xml") and b"<plist" in data[:400]:
         return {"kind": "XML plist", "mime": "application/xml", "image": False}
+    if head[:1] == b"<" and (b"<html" in data[:1000].lower() or b"<!doctype html" in data[:1000].lower()):
+        return {"kind": "HTML", "mime": "text/html", "image": False}
     if head[:1] in (b"{", b"[") and _is_json(data):
         return {"kind": "JSON", "mime": "application/json", "image": False}
     if len(data) >= 2 and data[0] == 0x78 and data[1] in (0x01, 0x5E, 0x9C, 0xDA) and (data[0] << 8 | data[1]) % 31 == 0:
@@ -334,13 +344,27 @@ def protobuf_decode(data: bytes, max_depth: int = 6, _depth: int = 0):
     return out or None
 
 
-def decode_blob(data: bytes, max_image: int = 20 * 1024 * 1024) -> dict:
-    """Everything the BLOB viewer shows: the type, a preview (image data URI / decoded structure / text) and
-    a hex dump of the start."""
+def decode_blob(data: bytes, max_image: int = 20 * 1024 * 1024, analyse: bool = True) -> dict:
+    """Everything the BLOB viewer shows: the type, a preview (image data URI / decoded structure / text), a
+    hex dump of the start and, at the top level, entropy, hashes and the transforms worth trying."""
+    from . import transforms
+
     info = detect_blob(data)
     out = {**info, "size": len(data), "hex": hexdump(data[:4096]), "truncated_hex": len(data) > 4096}
+    if analyse:
+        out["entropy"] = round(transforms.entropy(data[:1048576]), 3)
+        out["hashes"] = transforms.hashes(data)
+        out["suggest"] = transforms.suggest(data)
+        out["strings"] = len(transforms.strings(data[:1048576]))
     kind = info["kind"]
     try:
+        if kind == "SQLite database":
+            from .sqlite_format import SqliteFile
+
+            db = SqliteFile(data)
+            out["decoded"] = [{"type": o["type"], "name": o["name"], "sql": o["sql"]} for o in db.schema()]
+            out["decoded_label"] = f"Embedded SQLite database ({db.page_count} pages): schema"
+            return out
         if info["image"] and len(data) <= max_image:
             out["data_uri"] = f"data:{info['mime']};base64,{base64.b64encode(data).decode()}"
         elif kind in ("Binary plist", "XML plist"):
@@ -353,17 +377,38 @@ def decode_blob(data: bytes, max_image: int = 20 * 1024 * 1024) -> dict:
             out["decoded_label"] = "JSON"
         elif kind in ("gzip data", "zlib data"):
             inner = gzip.decompress(data) if kind == "gzip data" else zlib.decompress(data)
-            inner_info = decode_blob(inner, max_image)
+            inner_info = decode_blob(inner, max_image, analyse=False)
             out["decoded_label"] = f"Decompressed: {inner_info['kind']} ({len(inner):,} bytes)"
             out["inner"] = inner_info
-        elif kind == "Text":
+        elif kind in ("Mozilla jsonlz4", "LZ4 frame", "Snappy stream"):
+            inner = transforms.apply_chain(data, ["snappy" if kind == "Snappy stream" else "lz4"])
+            inner_info = decode_blob(inner, max_image, analyse=False)
+            out["decoded_label"] = f"Decompressed: {inner_info['kind']} ({len(inner):,} bytes)"
+            out["inner"] = inner_info
+        elif kind in ("Text", "HTML"):
             out["text"] = data[:200000].decode("utf-8", "replace")
         elif kind == "Protobuf (probable)":
             out["decoded"] = protobuf_decode(data)
             out["decoded_label"] = "Protobuf (no schema: field numbers only)"
-    except (plistlib.InvalidFileException, ValueError, OSError, EOFError, zlib.error, binascii.Error) as exc:
+    except (plistlib.InvalidFileException, ValueError, OSError, EOFError, zlib.error, binascii.Error,
+            transforms.TransformError, IndexError, KeyError) as exc:
         out["decode_error"] = f"{type(exc).__name__}: {exc}"
     return out
+
+
+EXTENSIONS = {
+    "image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp",
+    "image/tiff": "tif", "image/x-icon": "ico", "image/heic": "heic", "image/avif": "avif",
+    "application/x-bplist": "plist", "application/xml": "plist", "application/pdf": "pdf", "application/zip": "zip",
+    "application/gzip": "gz", "application/json": "json", "text/plain": "txt", "text/html": "html",
+    "video/mp4": "mp4", "audio/mp4": "m4a", "audio/amr": "amr", "audio/mpeg": "mp3", "audio/ogg": "ogg",
+    "audio/wav": "wav", "application/vnd.sqlite3": "sqlite", "application/x-protobuf": "pb",
+    "application/zlib": "zlib", "application/x-mozlz4": "jsonlz4", "application/x-lz4": "lz4",
+}
+
+
+def extension_for(mime: str) -> str:
+    return EXTENSIONS.get(mime, "bin")
 
 
 def hexdump(data: bytes, base: int = 0, width: int = 16) -> str:

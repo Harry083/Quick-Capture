@@ -74,6 +74,7 @@
     <div class="workspace-head">
       <div class="tabs" id="main-tabs" role="tablist">
         <button type="button" role="tab" data-tab="tables" aria-selected="true">Tables</button>
+        <button type="button" role="tab" data-tab="search" aria-selected="false">Search all</button>
         <button type="button" role="tab" data-tab="query" aria-selected="false">Query</button>
         <button type="button" role="tab" data-tab="recovered" aria-selected="false">Recovered <span class="count" id="count-recovered"></span></button>
         <button type="button" role="tab" data-tab="wal" aria-selected="false">WAL &amp; journal</button>
@@ -99,12 +100,25 @@
             <input type="search" id="row-search" class="path-input small-input" placeholder="Search rows…" />
             <div class="pager" id="table-pager"></div>
             <button class="btn small-btn" id="schema-btn" type="button" disabled>Schema</button>
+            <button class="btn small-btn" id="blob-export-btn" type="button" disabled title="Write every BLOB in a column to its own file, with a manifest of hashes">Export BLOBs…</button>
             <button class="btn small-btn" id="table-csv" type="button" disabled>Export CSV</button>
           </div>
           <pre id="schema-box" class="report-text schema-box hidden"></pre>
           <div id="table-grid" class="grid-box"><p class="placeholder">Open a database, then choose a table.</p></div>
         </div>
       </div>
+    </div>
+
+    <!-- Search all -->
+    <div class="tab-pane hidden" data-pane="search">
+      <p class="guide">Looks for a value in every column of every table in the current view: text matches whatever
+        the case, and the same bytes are looked for inside BLOBs. Deleted records found by recovery are searched too.</p>
+      <div class="path-input-row search-row">
+        <input type="search" id="global-search" class="path-input" placeholder="Phone number, name, URL, keyword…" />
+        <button class="btn btn-primary" id="global-search-btn" type="button"><span class="btn-icon" aria-hidden="true">⌕</span>Search</button>
+      </div>
+      <div class="file-status" id="global-search-status"></div>
+      <div id="global-results"></div>
     </div>
 
     <!-- Query -->
@@ -139,6 +153,9 @@
 
     <!-- Recovered -->
     <div class="tab-pane hidden" data-pane="recovered">
+      <div class="rec-banner"><span>Recovered records are also rebuilt as a database of their own, one table per source table with
+        columns saying where each record came from, so you can query them like live data.</span>
+        <button class="btn small-btn" id="rec-as-db" type="button">Query as a database</button></div>
       <p class="guide">Records carved from freeblocks, unallocated space and freelist pages, plus earlier versions of rows
         from the main file, WAL frames and journal pages. Each one is compared with the live table: <strong>deleted</strong>
         (the rowid is gone), <strong>older version</strong> (the row has since changed) or <strong>live</strong> (a copy of a row that's still there).</p>

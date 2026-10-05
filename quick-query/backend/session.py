@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import os
+import re
 import shutil
 import sqlite3
 import stat
@@ -24,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import decoders
+from . import decoders, transforms
 from .history import journal_records, wal_records
 from .recovery import Carved, TableSig, dedupe, recover_database
 from .sqlite_format import (
@@ -251,6 +252,7 @@ class Case:
             out.append({"key": "current", "label": "Database"})
         if self.journal and self.journal.pages:
             out.append({"key": "journal", "label": "Before the journalled transaction (rolled back)"})
+        out.append({"key": "recovered", "label": "Recovered records (rebuilt as a database)"})
         return out
 
     def _image_for(self, key: str) -> tuple[bytes, SqliteFile, str]:
@@ -286,10 +288,16 @@ class Case:
         return bytes(buf), SqliteFile(bytes(buf), page_count=pages), label
 
     def view(self, key: str = "current") -> View:
+        rebuilt = None
+        if key == "recovered" and key not in self._views:
+            rebuilt = self._build_recovered_db(self.recover())  # outside the lock: recovery opens views itself
         with self._views_lock:
             if key in self._views:
                 return self._views[key]
-            raw, image, label = self._image_for(key)
+            if key == "recovered":
+                raw, image, label = rebuilt, SqliteFile(rebuilt), "Recovered records"
+            else:
+                raw, image, label = self._image_for(key)
             work = bytearray(raw)
             work[18:20] = b"\x01\x01"  # rollback-journal mode: SQLite won't look for or create a WAL
             path = self.tmp / f"view-{key.replace(':', '-')}.sqlite"
@@ -591,7 +599,58 @@ class Case:
         with self._recover_lock:  # the page may ask twice at once (on open, and from the Recovered tab)
             if self._recovered is None or force:
                 self._recovered = self._recover()
+                with self._views_lock:  # the rebuilt database is out of date now
+                    old = self._views.pop("recovered", None)
+                    self._objects.pop("recovered", None)
+                if old:
+                    old.conn.close()
             return self._recovered
+
+    META_COLUMNS = (("status", "TEXT"), ("source", "TEXT"), ("location", "TEXT"), ("orig_rowid", "INTEGER"),
+                    ("confidence", "TEXT"), ("inferred", "TEXT"), ("note", "TEXT"), ("also_found_in", "TEXT"))
+
+    def _build_recovered_db(self, recs: list[dict]) -> bytes:
+        """Recovered records as a database of their own: one table per source table, the original columns
+        plus where each record came from, so they can be browsed, searched and queried like live data."""
+        path = self.tmp / f"recovered-build-{time.monotonic_ns()}.sqlite"
+        conn = sqlite3.connect(path)
+        try:
+            conn.execute("PRAGMA journal_mode = OFF")
+            decl = {}
+            for o in self.objects("current"):
+                if o["type"] == "table":
+                    decl[o["name"]] = {c["name"]: c["type"] for c in o.get("columns", [])}
+            by_table: dict[str, list[dict]] = {}
+            for r in recs:
+                by_table.setdefault(r["table"], []).append(r)
+            for table, rows in by_table.items():
+                cols = rows[0]["columns"]
+                meta = [(f"qq_{m}", t) for m, t in self.META_COLUMNS]
+                taken = {c.lower() for c in cols}
+                meta = [(n if n.lower() not in taken else n + "_", t) for n, t in meta]
+                col_sql = ", ".join([f"{quote_ident(n)} {t}" for n, t in meta] +
+                                    [f"{quote_ident(c)} {decl.get(table, {}).get(c, '')}".strip() for c in cols])
+                conn.execute(f"CREATE TABLE {quote_ident(table)} ({col_sql})")
+                ph = ", ".join("?" * (len(meta) + len(cols)))
+                conn.executemany(f"INSERT INTO {quote_ident(table)} VALUES ({ph})", [
+                    [r["status"], r["source"], self._location(r), r["rowid"], r["confidence"],
+                     ", ".join(r["inferred"]) or None, r["note"] or None, ", ".join(r.get("also") or []) or None,
+                     *r["values"][:len(cols)], *[None] * max(0, len(cols) - len(r["values"]))]
+                    for r in rows])
+            conn.commit()
+        finally:
+            conn.close()
+        data = path.read_bytes()
+        path.unlink()
+        return data
+
+    @staticmethod
+    def _location(r: dict) -> str:
+        if r["source"] == "wal":
+            return f"WAL frame {r['frame']}"
+        if r["source"] == "journal":
+            return f"journal record {r['frame']}"
+        return f"page {r['page']} offset {r['offset']}" if r["page"] else ""
 
     def _recover(self) -> list[dict]:
         sigs = self.signatures("current")
@@ -803,8 +862,216 @@ class Case:
         return out
 
     # ------------------------------------------------------------ blobs
-    def blob(self, blob_id: str) -> dict:
-        return decoders.decode_blob(self.blobs.get(blob_id))
+    def blob(self, blob_id: str, chain: list[str] | None = None) -> dict:
+        """Decode a BLOB, optionally after a chain of transforms (Base64 → zlib → plist, ...). The result of
+        the chain is stored too, so it can be saved or decoded further."""
+        data = self.blobs.get(blob_id)
+        chain = [str(c) for c in (chain or [])]
+        if chain:
+            try:
+                data = transforms.apply_chain(data, chain)
+            except transforms.TransformError as exc:
+                raise CaseError(str(exc)) from exc
+        out = decoders.decode_blob(data)
+        out["id"] = self.blobs.put(data)
+        out["chain"] = chain
+        return out
+
+    def put_text(self, text: str) -> str:
+        """Store a text value so the viewer can decode it (Base64 or hex in a TEXT column, say)."""
+        return self.blobs.put(str(text).encode("utf-8"))
+
+    # ------------------------------------------------------------ search everywhere
+    def search_all(self, view_key: str, term: str, per_table: int = 50, include_recovered: bool = True) -> dict:
+        """Find a value in every column of every table: text matches case-insensitively, and the same bytes
+        are looked for inside BLOBs."""
+        term = (term or "").strip()
+        if len(term) < 2:
+            raise CaseError("Search for at least 2 characters")
+        v = self.view(view_key)
+        like = f"%{term.replace(chr(92), chr(92) * 2).replace('%', chr(92) + '%').replace('_', chr(92) + '_')}%"
+        results = []
+        for o in self.objects(view_key):
+            if o["type"] not in ("table", "view") or not o.get("columns") or o.get("virtual"):
+                continue
+            names = [c["name"] for c in o["columns"]]
+            conds, params = [], []
+            for n in names:
+                q = quote_ident(n)
+                conds.append(f"(CAST({q} AS TEXT) LIKE ? ESCAPE '\\' OR (typeof({q}) = 'blob' AND instr({q}, CAST(? AS BLOB)) > 0))")
+                params += [like, term]
+            where = " OR ".join(conds)
+            rowid = o["type"] == "table" and self._has_rowid(view_key, o["name"])
+            pks = [c for c in o["columns"] if c["pk"]]
+            ipk = pks[0]["name"] if rowid and len(pks) == 1 and pks[0]["type"].strip().upper() == "INTEGER" else None
+            select = ("rowid AS \"[rowid]\", " if rowid and not ipk else "") + "*"
+            rowid_index = (names.index(ipk) if ipk else 0) if rowid else None
+            try:
+                total = self._run(v, f"SELECT count(*) FROM {quote_ident(o['name'])} WHERE {where}", params)[1][0][0]
+                if not total:
+                    continue
+                cols, rows, _, _ = self._run(v, f"SELECT {select} FROM {quote_ident(o['name'])} WHERE {where} LIMIT ?",
+                                             [*params, per_table])
+            except CaseError:
+                continue
+            low = term.lower()
+            hits = [[c for c, val in zip(cols, r) if (isinstance(val, str) and low in val.lower()) or
+                     (isinstance(val, bytes) and term.encode() in val) or
+                     (isinstance(val, (int, float)) and low in str(val).lower())] for r in rows]
+            formats = self.detect_formats(o["name"], cols, rows)
+            results.append({"table": o["name"], "columns": cols, "rows": self.render_rows(cols, rows, formats),
+                            "formats": formats, "total": total, "hits": hits,
+                            "rowid_index": rowid_index})
+        recovered = []
+        if include_recovered and self._recovered is not None:
+            low = term.lower()
+            for r in self._recovered:
+                if r["status"] == "live":
+                    continue
+                if any((isinstance(x, str) and low in x.lower()) or (isinstance(x, bytes) and term.encode() in x)
+                       for x in r["values"]):
+                    recovered.append({"table": r["table"], "status": r["status"], "source": r["source"],
+                                      "rowid": r["rowid"], "id": r["id"], "location": self._location(r),
+                                      "columns": r["columns"], "cells": self.render_rows(r["columns"], [r["values"]], {})[0]})
+                    if len(recovered) >= 500:
+                        break
+        return {"term": term, "tables": results, "recovered": recovered,
+                "total": sum(t["total"] for t in results)}
+
+    # ------------------------------------------------------------ WAL timeline
+    def timeline(self, max_events: int = 20000) -> dict:
+        """What each WAL transaction did, row by row: the main file is the state before the first commit;
+        each commit's pages are applied in turn and the rows of every table it touched are compared."""
+        if not self.wal or not self.wal.valid_frames:
+            return {"events": [], "commits": [], "truncated": False}
+        sigs = {s.name: s for s in self.signatures("current")}
+        formats, all_formats = {}, {}
+        for name in sigs:
+            try:
+                cols, rows = self.table_raw("current", name)
+                fm = self.detect_formats(name, cols, rows[:300])
+                formats[name] = next(((c, f) for c, f in fm.items() if c != "[rowid]"), None)
+                all_formats[name] = fm
+            except CaseError:
+                formats[name] = None
+
+        def snapshot(image: SqliteFile, names):
+            roots = {s["name"]: s["rootpage"] for s in image.schema() if s["type"] == "table" and s["rootpage"]}
+            state = {}
+            for name in names:
+                root, sig = roots.get(name), sigs[name]
+                if not root:
+                    state[name] = ({}, set())
+                    continue
+                pages = {h.number for h, _, _ in image.walk(root, visit_cells=False)}
+                rows = {}
+                for c in image.table_rows(root):
+                    if c.error:
+                        continue
+                    vals = list(c.values)[:sig.ncols] + [None] * max(0, sig.ncols - len(c.values))
+                    if sig.ipk is not None:
+                        vals[sig.ipk] = c.rowid
+                    rows[c.rowid if not sig.without_rowid else tuple(map(repr, vals))] = vals
+                state[name] = (rows, pages)
+            return state
+
+        prev = snapshot(self.main, list(sigs))
+        overlay: dict[int, bytes] = {}
+        events, commits, pending, n = [], [], [], 0
+        truncated = False
+        for f in self.wal.valid_frames:
+            pending.append(f)
+            if not f.is_commit:
+                continue
+            n += 1
+            for fr in pending:
+                overlay[fr.page_number] = self.wal.frame_page(self.wal_data, fr)
+            changed = {fr.page_number for fr in pending}
+            image = SqliteFile(self.data, dict(overlay), f.commit_size)
+            touched = [name for name, (_, pages) in prev.items() if pages & changed]
+            # tables created in this commit have no pages in prev yet
+            known_roots = {s["name"] for s in image.schema() if s["type"] == "table"}
+            touched += [name for name in sigs if name in known_roots and not prev.get(name, ({}, set()))[1]
+                        and name not in touched]
+            now = snapshot(image, touched)
+            counts = {"insert": 0, "update": 0, "delete": 0}
+            for name in touched:
+                before, after = prev.get(name, ({}, set()))[0], now[name][0]
+                cols = sigs[name].columns
+                for key in sorted(set(before) | set(after), key=repr):
+                    b, a = before.get(key), after.get(key)
+                    if b == a:
+                        continue
+                    op = "insert" if b is None else "delete" if a is None else "update"
+                    counts[op] += 1
+                    if len(events) >= max_events:
+                        truncated = True
+                        continue
+                    row = a if a is not None else b
+                    ts = ""
+                    fmt = formats.get(name)
+                    if fmt and fmt[0] in cols:
+                        ts = decoders.format_dt(decoders.convert_timestamp(row[cols.index(fmt[0])], fmt[1]))
+                    events.append({
+                        "commit": n, "first_frame": pending[0].index, "last_frame": f.index, "table": name, "op": op,
+                        "rowid": key if not isinstance(key, tuple) else None, "columns": cols,
+                        "changed": [c for c, x, y in zip(cols, b, a) if x != y] if op == "update" else [],
+                        "before": self.render_rows(cols, [b], all_formats.get(name, {}))[0] if b is not None else None,
+                        "after": self.render_rows(cols, [a], all_formats.get(name, {}))[0] if a is not None else None,
+                        "ts": ts, "ts_column": fmt[0] if fmt and ts else "",
+                    })
+                prev[name] = now[name]
+            commits.append({"commit": n, "first_frame": pending[0].index, "last_frame": f.index,
+                            "pages": sorted(changed), "tables": touched, **counts})
+            pending = []
+        return {"events": events, "commits": commits, "truncated": truncated}
+
+    # ------------------------------------------------------------ BLOB export
+    def blob_columns(self, view_key: str, table: str) -> list[dict]:
+        out = []
+        for c in self.columns(view_key, table):
+            q = quote_ident(c["name"])
+            n = self._run(self.view(view_key), f"SELECT count(*) FROM {quote_ident(table)} WHERE typeof({q}) = 'blob'")[1][0][0]
+            if n:
+                out.append({"name": c["name"], "count": n})
+        return out
+
+    def export_blobs(self, view_key: str, table: str, column: str, folder: str) -> dict:
+        """Write every BLOB in a column to its own file, named by table, rowid and column with an extension
+        from its detected type, plus a manifest.csv with sizes, types and hashes."""
+        import csv
+
+        dest = Path(folder)
+        if not dest.is_dir():
+            raise CaseError(f"Folder not found: {folder}")
+        evidence_dirs = {Path(e.original).parent.resolve() for e in self.evidence.values()}
+        if dest.resolve() in evidence_dirs:
+            raise CaseError("Choose a folder other than the one holding the evidence")
+        if column not in [c["name"] for c in self.columns(view_key, table)]:
+            raise CaseError(f"No column {column} in {table}")
+        rowid = self._has_rowid(view_key, table)
+        sel = ("rowid, " if rowid else "NULL, ") + quote_ident(column)
+        _, rows, _, _ = self._run(self.view(view_key), f"SELECT {sel} FROM {quote_ident(table)} "
+                                                       f"WHERE typeof({quote_ident(column)}) = 'blob'")
+        safe = lambda s: re.sub(r"[^A-Za-z0-9._-]+", "_", str(s))[:60]  # noqa: E731
+        manifest = []
+        for i, (rid, data) in enumerate(rows):
+            info = decoders.detect_blob(data)
+            name = f"{safe(table)}-{rid if rid is not None else i + 1}-{safe(column)}.{decoders.extension_for(info['mime'])}"
+            path = dest / name
+            k = 1
+            while path.exists():
+                path = dest / f"{path.stem}({k}){path.suffix}"
+                k += 1
+            path.write_bytes(data)
+            h = transforms.hashes(data)
+            manifest.append([path.name, rid, len(data), info["kind"], h["md5"], h["sha256"]])
+        mpath = dest / f"{safe(table)}-{safe(column)}-manifest.csv"
+        with open(mpath, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(["file", "rowid", "bytes", "type", "md5", "sha256"])
+            w.writerows(manifest)
+        return {"folder": str(dest), "count": len(manifest), "manifest": str(mpath)}
 
     def blob_bytes(self, blob_id: str) -> bytes:
         return self.blobs.get(blob_id)

@@ -141,6 +141,9 @@ async function openCase(path) {
     state.rec = { ...state.rec, table: "", offset: 0, counts: null };
     state.pageMap = null;
     state.walLoaded = false;
+    timelineState.data = null;
+    $("#global-results").innerHTML = "";
+    $("#global-search-status").textContent = "";
     status.textContent = `Opened read-only · ${formatBytes(summary.file.size)} · working copies verified against the originals`;
     status.className = "file-status ok";
     renderEvidence(summary);
@@ -238,6 +241,7 @@ function switchTab(tab) {
   if (tab === "wal" && !state.walLoaded) loadWal();
   if (tab === "query") loadBuilderTables();
   if (tab === "report") loadTags();
+  if (tab === "search") setTimeout(() => $("#global-search").focus(), 0);
 }
 
 // ---------- Data grid ----------
@@ -257,7 +261,8 @@ function cellHtml(c, colIdx) {
     case "text": {
       const v = c.v;
       const short = v.length > 160 ? v.slice(0, 160) + "…" : v;
-      return `<span class="txt" title="${escapeHtml(v.length > 160 ? v.slice(0, 2000) : "")}">${escapeHtml(short)}</span>`;
+      const inspect = v.length >= 8 ? `<button type="button" class="inspect-btn" title="Open in the viewer (decode Base64, hex, URL encoding…)">⤢</button>` : "";
+      return `<span class="txt" title="${escapeHtml(v.length > 160 ? v.slice(0, 2000) : "")}">${escapeHtml(short)}</span>${inspect}`;
     }
     case "blob":
       return `<button type="button" class="blob-chip" data-blob="${escapeHtml(c.id || "")}" title="${escapeHtml(c.preview)}">${escapeHtml(c.kind)} · ${formatBytes(c.len)}</button>`;
@@ -312,6 +317,16 @@ function renderGrid(container, opts) {
     })
   );
   $$(".blob-chip", container).forEach((b) => b.addEventListener("click", () => openBlob(b.dataset.blob)));
+  $$(".inspect-btn", container).forEach((b) =>
+    b.addEventListener("click", () => {
+      const tr = b.closest("tr");
+      const td = b.closest("td");
+      const i = Number(tr.dataset.i);
+      const j = Array.from(tr.children).indexOf(td) - 1 - meta.length;
+      const c = rows[i] && rows[i][j];
+      if (c && c.t === "text") inspectText(c.v);
+    })
+  );
   $$(".num-cell", container).forEach((el) => el.addEventListener("click", (e) => timestampPopover(e.currentTarget)));
   $$(".tag-btn", container).forEach((b) =>
     b.addEventListener("click", () => {
@@ -351,7 +366,7 @@ function closePopover() {
 }
 
 document.addEventListener("click", (e) => {
-  if (!popover.classList.contains("hidden") && !popover.contains(e.target) && !e.target.closest(".num-cell, .fmt-btn")) closePopover();
+  if (!popover.classList.contains("hidden") && !popover.contains(e.target) && !e.target.closest(".num-cell, .fmt-btn, #blob-export-btn")) closePopover();
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
@@ -464,6 +479,7 @@ async function loadRows() {
   $("#table-sub").textContent = obj && obj.columns ? `${obj.columns.length} columns` : "";
   $("#schema-btn").disabled = !obj;
   $("#table-csv").disabled = false;
+  $("#blob-export-btn").disabled = false;
   $("#schema-box").textContent = obj ? obj.sql : "";
   grid.classList.add("loading");
   try {
@@ -507,6 +523,35 @@ async function loadRows() {
 }
 
 $("#schema-btn").addEventListener("click", () => $("#schema-box").classList.toggle("hidden"));
+
+$("#blob-export-btn").addEventListener("click", async (e) => {
+  const anchor = e.currentTarget;
+  try {
+    const d = await api("blob_columns", state.view, state.table);
+    if (!d.columns.length) {
+      popover.innerHTML = `<p class="placeholder">No BLOBs in ${escapeHtml(state.table)}.</p>`;
+      placePopover(anchor);
+      return;
+    }
+    popover.innerHTML = `<div class="pop-title">Export every BLOB in…</div><div class="fmt-list">${d.columns
+      .map((c) => `<button type="button" data-col="${escapeHtml(c.name)}">${escapeHtml(c.name)} <span class="hint-inline">${num(c.count)} BLOBs</span></button>`)
+      .join("")}</div><p class="inline-note">You'll be asked for a folder. Files are named table-rowid-column, with a manifest of hashes.</p>`;
+    placePopover(anchor);
+    $$(".fmt-list button", popover).forEach((b) =>
+      b.addEventListener("click", async () => {
+        closePopover();
+        try {
+          const r = await api("export_blobs", state.view, state.table, b.dataset.col);
+          if (r.folder) flash(`Exported ${num(r.count)} BLOBs to ${r.folder}`);
+        } catch (err) {
+          showError(err.message);
+        }
+      })
+    );
+  } catch (err) {
+    showError(err.message);
+  }
+});
 $("#table-csv").addEventListener("click", () => exportCsv("table", { view: state.view, table: state.table }));
 
 async function exportCsv(kind, params) {
@@ -909,6 +954,74 @@ $("#rec-rerun").addEventListener("click", async (e) => {
 });
 $("#rec-csv").addEventListener("click", () => exportCsv("recovered", { table: state.rec.table, status: state.rec.status, source: state.rec.source }));
 
+// ---------- Search all ----------
+$("#global-search-btn").addEventListener("click", globalSearch);
+$("#global-search").addEventListener("keydown", (e) => e.key === "Enter" && globalSearch());
+
+async function globalSearch() {
+  const term = $("#global-search").value.trim();
+  if (!term || !state.summary) return;
+  const status = $("#global-search-status");
+  const box = $("#global-results");
+  status.textContent = "Searching every table…";
+  status.className = "file-status";
+  box.innerHTML = "";
+  try {
+    const d = await api("search_all", state.view, term);
+    status.textContent = `${num(d.total)} matching row${d.total === 1 ? "" : "s"} in ${d.tables.length} table${d.tables.length === 1 ? "" : "s"}` +
+      (d.recovered.length ? ` · ${num(d.recovered.length)} recovered record${d.recovered.length === 1 ? "" : "s"}` : "");
+    status.className = d.total || d.recovered.length ? "file-status ok" : "file-status";
+    box.innerHTML =
+      d.tables
+        .map((t, k) => `<div class="search-group"><div class="search-head"><b>${escapeHtml(t.table)}</b> <span class="hint-inline">${num(t.total)} match${t.total === 1 ? "" : "es"}${t.total > t.rows.length ? `, first ${t.rows.length} shown` : ""}</span>
+          <button type="button" class="link open-table" data-table="${escapeHtml(t.table)}">open table filtered ↗</button></div><div class="grid-box" id="sr-${k}"></div></div>`)
+        .join("") +
+      (d.recovered.length ? `<div class="search-group"><div class="search-head"><b>Recovered records</b> <span class="hint-inline">deleted rows and older versions</span></div><div class="grid-box" id="sr-rec"></div></div>` : "");
+    d.tables.forEach((t, k) => {
+      const el = $(`#sr-${k}`);
+      renderGrid(el, {
+        columns: t.columns,
+        rows: t.rows,
+        formats: t.formats,
+        tag: (i) => ({ source: "search", table: t.table, view: state.view, rowid: t.rowid_index !== null ? t.rows[i][t.rowid_index].v : null, columns: t.columns, cells: t.rows[i], detail: `search: ${term}` }),
+      });
+      // highlight the columns that matched
+      $$("tbody tr", el).forEach((tr, i) => {
+        const hit = new Set(t.hits[i] || []);
+        Array.from(tr.children).slice(1).forEach((td, j) => hit.has(t.columns[j]) && td.classList.add("hit"));
+      });
+    });
+    if (d.recovered.length) {
+      const recs = d.recovered;
+      $("#sr-rec").innerHTML = `<table class="data-grid"><thead><tr><th>status</th><th>table</th><th>where</th><th>rowid</th><th>values</th></tr></thead><tbody>${recs
+        .map((r) => `<tr><td><span class="status-pill s-${r.status.replace(" ", "-")}">${escapeHtml(r.status)}</span></td><td>${escapeHtml(r.table)}</td><td>${escapeHtml(r.source)} ${escapeHtml(r.location)}</td><td>${r.rowid ?? ""}</td>
+          <td class="cell-vals">${r.cells.map((c, i) => `<span class="hint-inline">${escapeHtml(r.columns[i])}</span> ${cellHtml(c)}`).join(" <span class='sep'>|</span> ")}</td></tr>`)
+        .join("")}</tbody></table>`;
+      wirePage($("#sr-rec"));
+    }
+    $$(".open-table", box).forEach((b) =>
+      b.addEventListener("click", () => {
+        switchTab("tables");
+        selectTable(b.dataset.table);
+        $("#row-search").value = term;
+        state.tableSearch = term;
+        loadRows();
+      })
+    );
+    if (!d.tables.length && !d.recovered.length) box.innerHTML = `<p class="placeholder">Nothing found for “${escapeHtml(term)}”.</p>`;
+  } catch (e) {
+    status.textContent = e.message;
+    status.className = "file-status err";
+  }
+}
+
+$("#rec-as-db").addEventListener("click", () => {
+  setView("recovered");
+  switchTab("query");
+  const t = state.rec.table || "message";
+  sqlInput.value = `SELECT * FROM "${t.replace(/"/g, '""')}"\nWHERE qq_status = 'deleted'\nORDER BY qq_orig_rowid;`;
+});
+
 // ---------- WAL & journal ----------
 async function loadWal() {
   const body = $("#wal-body");
@@ -952,6 +1065,7 @@ async function loadWal() {
             )
             .join("")}</div>`;
         }
+        html += `<h3>Timeline <span class="hint-inline">what each transaction did, row by row</span></h3><div id="timeline-box"><p class="placeholder">Replaying the WAL…</p></div>`;
         html += `<h3>Frames</h3><div class="grid-box frames-box"><table class="data-grid"><thead><tr><th>#</th><th>page</th><th>type</th><th>table</th><th>commit</th><th>state</th><th>cells</th><th></th></tr></thead><tbody>${d.frames
           .map(
             (f) => `<tr class="${f.state === "valid" ? "" : "dim"}"><td>${f.index}</td><td>${f.page}</td><td>${escapeHtml(f.type)}</td><td>${escapeHtml(f.owner)}</td>
@@ -965,11 +1079,88 @@ async function loadWal() {
     }
   }
   body.innerHTML = html;
+  if ($("#timeline-box", body)) loadTimeline();
   $$(".view-commit", body).forEach((b) => b.addEventListener("click", () => setView(b.dataset.k)));
   $$(".frame-link", body).forEach((b) => b.addEventListener("click", () => openPage({ source: "wal", frame: Number(b.dataset.frame) })));
   $$(".jpage", body).forEach((b) => b.addEventListener("click", () => openPage({ source: "db", view: "journal", number: Number(b.dataset.page) })));
   const vj = $("#view-journal", body);
   if (vj) vj.addEventListener("click", () => setView("journal"));
+}
+
+const timelineState = { data: null, op: "", table: "" };
+
+async function loadTimeline() {
+  const box = $("#timeline-box");
+  try {
+    timelineState.data = await api("timeline");
+    renderTimeline();
+  } catch (e) {
+    box.innerHTML = `<p class="placeholder">${escapeHtml(e.message)}</p>`;
+  }
+}
+
+function changeSummary(e) {
+  const pick = (cells, cols) => cells.map((c, i) => [cols[i], c]);
+  if (e.op === "update") {
+    return e.changed
+      .map((col) => {
+        const i = e.columns.indexOf(col);
+        return `<span class="hint-inline">${escapeHtml(col)}</span> <span class="before">${cellHtml(e.before[i])}</span> → <span class="after">${cellHtml(e.after[i])}</span>`;
+      })
+      .join("<br>");
+  }
+  const cells = e.after || e.before;
+  return pick(cells, e.columns)
+    .filter(([, c]) => c.t !== "null")
+    .slice(0, 5)
+    .map(([col, c]) => `<span class="hint-inline">${escapeHtml(col)}</span> ${cellHtml(c)}`)
+    .join(" <span class='sep'>|</span> ");
+}
+
+function renderTimeline() {
+  const box = $("#timeline-box");
+  const d = timelineState.data;
+  if (!d || !d.events.length) {
+    box.innerHTML = `<p class="placeholder">No row changes found in the WAL's transactions.</p>`;
+    return;
+  }
+  const tables = [...new Set(d.events.map((e) => e.table))].sort();
+  const evs = d.events.filter((e) => (!timelineState.op || e.op === timelineState.op) && (!timelineState.table || e.table === timelineState.table));
+  const totals = { insert: 0, update: 0, delete: 0 };
+  d.commits.forEach((c) => ["insert", "update", "delete"].forEach((k) => (totals[k] += c[k])));
+  box.innerHTML = `<div class="grid-toolbar">
+      <div class="tabs compact" id="tl-ops">${[["", "All"], ["insert", `Inserts ${num(totals.insert)}`], ["update", `Updates ${num(totals.update)}`], ["delete", `Deletes ${num(totals.delete)}`]]
+        .map(([k, l]) => `<button type="button" data-op="${k}" aria-selected="${timelineState.op === k}">${l}</button>`)
+        .join("")}</div>
+      <select id="tl-table" class="small-select"><option value="">All tables</option>${tables.map((t) => `<option ${t === timelineState.table ? "selected" : ""}>${escapeHtml(t)}</option>`).join("")}</select>
+      ${d.truncated ? `<span class="hint-inline">first ${num(d.events.length)} changes shown</span>` : ""}
+    </div>
+    <div class="grid-box timeline-grid"><table class="data-grid"><thead><tr><th class="act"></th><th>commit</th><th>frames</th><th>change</th><th>table</th><th>rowid</th><th>row time</th><th>what changed</th></tr></thead><tbody>${evs
+      .map((e, i) => `<tr data-i="${i}"><td class="act"><button type="button" class="tag-btn" data-ev="${i}" title="Bookmark this change">☆</button></td>
+        <td><button type="button" class="link view-commit-tl" data-k="commit:${e.commit}" title="View the database as of this commit">#${e.commit}</button></td>
+        <td class="mono-cell">${e.first_frame}–${e.last_frame}</td>
+        <td><span class="op op-${e.op}">${e.op}</span></td><td>${escapeHtml(e.table)}</td><td>${e.rowid ?? ""}</td>
+        <td>${e.ts ? `<span class="ts" title="${escapeHtml(e.ts_column)}">${escapeHtml(e.ts)}</span>` : ""}</td>
+        <td class="cell-vals">${changeSummary(e)}</td></tr>`)
+      .join("")}</tbody></table></div>`;
+  $$("#tl-ops button", box).forEach((b) => b.addEventListener("click", () => ((timelineState.op = b.dataset.op), renderTimeline())));
+  $("#tl-table", box).addEventListener("change", (e) => ((timelineState.table = e.target.value), renderTimeline()));
+  $$(".view-commit-tl", box).forEach((b) => b.addEventListener("click", () => setView(b.dataset.k)));
+  wirePage(box);
+  $$(".tag-btn", box).forEach((b) =>
+    b.addEventListener("click", () => {
+      const e = evs[Number(b.dataset.ev)];
+      const cells = e.after || e.before;
+      openTagDialog({ source: `WAL ${e.op} (commit ${e.commit})`, table: e.table, rowid: e.rowid, columns: e.columns, cells,
+        detail: e.op === "update" ? `changed: ${e.changed.join(", ")}; before: ${e.changed.map((c) => `${c}=${cellText(e.before[e.columns.indexOf(c)])}`).join(", ")}` : `frames ${e.first_frame}–${e.last_frame}` }, b);
+    })
+  );
+}
+
+function cellText(c) {
+  if (!c || c.t === "null") return "NULL";
+  if (c.t === "blob") return `[BLOB ${c.kind}]`;
+  return String(c.s ?? c.v);
 }
 
 function setView(key) {
@@ -1091,7 +1282,7 @@ function hexHtml(d) {
   return rows.join("");
 }
 
-function wirePage(root, d) {
+function wirePage(root) {
   $$(".blob-chip", root).forEach((b) => b.addEventListener("click", () => openBlob(b.dataset.blob)));
   $$(".num-cell", root).forEach((el) => el.addEventListener("click", (e) => timestampPopover(e.currentTarget)));
 }
@@ -1141,23 +1332,74 @@ function blobBody(d) {
     <details class="raw-details" ${preview ? "" : "open"}><summary>Hex${d.truncated_hex ? " (first 4 KiB)" : ""}</summary><pre class="report-text hexdump">${escapeHtml(d.hex)}</pre></details>`;
 }
 
-async function openBlob(id) {
+// The viewer decodes the original bytes through a chain of transforms; each step can be undone.
+const viewer = { root: null, chain: [], current: null, title: "BLOB" };
+const TRANSFORMS = {};
+
+async function openBlob(id, title = "BLOB") {
   if (!id) return;
-  openModal("BLOB", `<p class="placeholder">Decoding…</p>`, `<button class="btn small-btn" id="blob-save" type="button">Save BLOB…</button>`);
+  viewer.root = id;
+  viewer.chain = [];
+  viewer.title = title;
+  openModal(title, `<p class="placeholder">Decoding…</p>`, `<button class="btn small-btn" id="blob-save" type="button">Save…</button>`);
   $("#blob-save").addEventListener("click", async () => {
     try {
-      const r = await api("save_blob", id);
+      const r = await api("save_blob", viewer.current || viewer.root);
       if (r.path) flash(`Saved ${r.path}`);
     } catch (e) {
       showError(e.message);
     }
   });
+  renderViewer();
+}
+
+async function inspectText(text) {
   try {
-    const d = await api("blob", id);
-    $("#modal-title").textContent = `BLOB · ${d.kind}`;
-    $("#modal-body").innerHTML = blobBody(d);
+    const d = await api("put_text", text);
+    openBlob(d.id, "Text value");
   } catch (e) {
-    $("#modal-body").innerHTML = `<p class="placeholder">${escapeHtml(e.message)}</p>`;
+    showError(e.message);
+  }
+}
+
+async function renderViewer() {
+  const body = $("#modal-body");
+  try {
+    const d = await api("decode", viewer.root, viewer.chain);
+    viewer.current = d.id;
+    $("#modal-title").textContent = `${viewer.title} · ${d.kind}`;
+    const steps = [`<button type="button" class="crumb" data-step="0">original</button>`]
+      .concat(viewer.chain.map((t, i) => `<span class="crumb-sep">→</span><button type="button" class="crumb" data-step="${i + 1}">${escapeHtml(TRANSFORMS[t] || t)}</button>`))
+      .join("");
+    const suggested = new Set(d.suggest || []);
+    const chips = Object.entries(TRANSFORMS)
+      .map(([k, label]) => `<button type="button" data-t="${k}" class="${suggested.has(k) ? "suggested" : ""}" title="${suggested.has(k) ? "Looks applicable" : ""}">${escapeHtml(label)}</button>`)
+      .join("");
+    const hashes = d.hashes ? Object.entries(d.hashes).map(([k, v]) => `<tr><td>${k.toUpperCase()}</td><td class="mono">${v}</td></tr>`).join("") : "";
+    body.innerHTML = `<div class="decode-bar">
+        <div class="crumbs">${steps}</div>
+        <div class="chips decode-chips"><span class="hint-inline">Decode as:</span>${chips}</div>
+      </div>
+      <div class="blob-stats"><span>entropy <b>${d.entropy ?? "–"}</b> bits/byte${d.entropy > 7.5 ? " · looks compressed or encrypted" : ""}</span>
+        <span>${num(d.strings)} strings</span>
+        <details class="inline-details"><summary>hashes</summary><table class="meta-table">${hashes}</table></details></div>
+      ${blobBody(d)}`;
+    $$(".decode-chips button", body).forEach((b) =>
+      b.addEventListener("click", () => {
+        viewer.chain.push(b.dataset.t);
+        renderViewer();
+      })
+    );
+    $$(".crumb", body).forEach((b) =>
+      b.addEventListener("click", () => {
+        viewer.chain = viewer.chain.slice(0, Number(b.dataset.step));
+        renderViewer();
+      })
+    );
+  } catch (e) {
+    const failed = viewer.chain.pop();
+    body.insertAdjacentHTML("afterbegin", `<p class="bad-text decode-err">${escapeHtml(e.message)}</p>`);
+    if (failed === undefined) body.innerHTML = `<p class="placeholder">${escapeHtml(e.message)}</p>`;
   }
 }
 
@@ -1257,6 +1499,7 @@ for (const [id, kind] of [["#report-html-btn", "html"], ["#report-json-btn", "js
     const opts = await api("options");
     Object.assign(TS_FORMATS, opts.timestamp_formats);
     Object.assign(TS_SQL, opts.timestamp_sql || {});
+    Object.assign(TRANSFORMS, (await api("transforms")).transforms);
   } catch (e) {
     console.error(e);
   }
