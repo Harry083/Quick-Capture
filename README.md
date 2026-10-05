@@ -10,8 +10,9 @@ Linux). **No web server runs and no network port is opened**: the window's JavaS
 backend directly. The UI is the same vanilla HTML/CSS/JS in the same style as
 [Frame Guard](../README.md), with no build step.
 
-> **Also in this repository:** [Deep Table](deep-table/README.md), a forensic SQLite viewer in the same style.
-> It recovers deleted records, shows WAL and journal history, and decodes BLOBs and timestamps.
+> **Also in this repository:** [Deep Table](deep-table/README.md), a forensic viewer in the same style for SQLite
+> databases and LevelDB stores (Chrome/Electron Local Storage, Session Storage and IndexedDB). It recovers
+> deleted records, shows WAL / LevelDB history as a timeline, and decodes BLOBs, timestamps and stored values.
 
 ## Requirements
 

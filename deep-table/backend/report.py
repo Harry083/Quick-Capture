@@ -135,6 +135,25 @@ def generate_html(case) -> str:
         [("Note", "Header zeroed (PERSIST mode); pages read anyway")] if journal.get("zeroed_header") else [])) \
         if journal else ""
 
+    ldb = s.get("leveldb")
+    if ldb:
+        files = _grid(["File", "Kind", "Bytes", "Records", "Level", "In current version", "Problem"],
+                      [[f["name"], f["kind"], f"{f['size']:,}", f"{f['records']:,}", "" if f.get("level") is None else f["level"],
+                        "" if f.get("in_version") is None else ("yes" if f["in_version"] else "no"), f["error"]]
+                       for f in ldb["files"]])
+        states = ", ".join(f"{n:,} {k}" for k, n in sorted(ldb["states"].items()))
+        store_html = ("<div class='panel'><h2>LevelDB</h2><table class='kv'>"
+                      + _kv([("Store", _esc(ldb["store_label"])), ("Comparator", _esc(ldb["comparator"])),
+                             ("Last sequence", _esc(ldb["last_sequence"])), ("Raw records", _esc(states)),
+                             ("Folder digest (SHA-256)", f"<span class='mono'>{_esc(f['hashes'].get('sha256', ''))}</span>")])
+                      + f"</table><h3>Files</h3>{files}</div>")
+    else:
+        store_html = ("<div class='panel'><h2>Database header</h2><table class='kv'>"
+                      + _kv([(k.replace('_', ' '), _esc(v)) for k, v in hdr.items()]) + "</table>"
+                      + (f"<h3>Write-ahead log</h3><table class='kv'>{wal_html}</table>" if wal_html else "")
+                      + (f"<h3>Rollback journal</h3><table class='kv'>{journal_html}</table>" if journal_html else "")
+                      + "</div>")
+
     objects = _grid(["Type", "Name", "Rows", "Root page"],
                     [[o["type"], o["name"], "" if o["rows"] is None else f"{o['rows']:,}", o["rootpage"]]
                      for o in ctx["objects"] if o["type"] in ("table", "view")])
@@ -226,7 +245,7 @@ def generate_html(case) -> str:
 </head>
 <body>
 <div class="wrap">
-  <p class="eyebrow">Deep Table · SQLite examination report</p>
+  <p class="eyebrow">Deep Table · {"LevelDB" if s.get("leveldb") else "SQLite"} examination report</p>
   <h1>{_esc(f['name'])}</h1>
   <div class="meta-line">Generated {_esc(ctx['generated'])} · {_esc(ctx['tool'])} · opened {_esc(s['opened_at'])} · {_esc(ctx['host'])}</div>
 
@@ -254,12 +273,7 @@ def generate_html(case) -> str:
     <table class="kv">{evidence_rows}</table>
   </div>
 
-  <div class="panel">
-    <h2>Database header</h2>
-    <table class="kv">{_kv([(k.replace('_', ' '), _esc(v)) for k, v in hdr.items()])}</table>
-    {f"<h3>Write-ahead log</h3><table class='kv'>{wal_html}</table>" if wal_html else ""}
-    {f"<h3>Rollback journal</h3><table class='kv'>{journal_html}</table>" if journal_html else ""}
-  </div>
+  {store_html}
 
   <div class="panel"><h2>Tables and views</h2>{objects}</div>
 

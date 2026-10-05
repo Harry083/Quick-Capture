@@ -87,11 +87,14 @@ dbInput.addEventListener("keydown", (e) => {
 });
 openBtn.addEventListener("click", () => openCase(dbInput.value.trim()));
 
-$("#browse-db").addEventListener("click", async (e) => {
+$("#browse-dir").addEventListener("click", (e) => browse(e, "folder"));
+$("#browse-db").addEventListener("click", (e) => browse(e, "file"));
+
+async function browse(e, mode) {
   const btn = e.currentTarget;
   btn.disabled = true;
   try {
-    const data = await api("pick_database", dbInput.value.trim());
+    const data = await api("pick_database", dbInput.value.trim(), mode);
     if (data.path) {
       dbInput.value = data.path;
       openBtn.disabled = false;
@@ -102,7 +105,7 @@ $("#browse-db").addEventListener("click", async (e) => {
   } finally {
     btn.disabled = false;
   }
-});
+}
 
 window.openFromArgs = (path) => {
   dbInput.value = path;
@@ -172,7 +175,7 @@ async function openCase(path) {
 
 function renderEvidence(s) {
   const pill = $("#evidence-pill");
-  pill.textContent = `${s.header.journal_mode.toUpperCase()} · SQLite ${s.header.sqlite_version || "?"}`;
+  pill.textContent = s.kind === "leveldb" ? `LevelDB · ${s.leveldb.store_label}` : `${s.header.journal_mode.toUpperCase()} · SQLite ${s.header.sqlite_version || "?"}`;
   pill.classList.add("on");
   const list = $("#evidence-list");
   list.innerHTML = s.evidence
@@ -191,6 +194,33 @@ function renderEvidence(s) {
 }
 
 function renderOverview(s) {
+  const isLdb = s.kind === "leveldb";
+  $$(".ldb-only").forEach((el) => el.classList.toggle("hidden", !isLdb));
+  $$(".sqlite-only").forEach((el) => el.classList.toggle("hidden", isLdb));
+  $("#wal-tab").textContent = isLdb ? "LevelDB & timeline" : "WAL & journal";
+  $("#pages-tab").classList.toggle("hidden", isLdb);
+  if (isLdb && state.tab === "pages") switchTab("tables");
+  if (isLdb) {
+    const l = s.leveldb;
+    const st = l.states;
+    const tables = Object.entries(l.decoded);
+    $("#overview-cards").innerHTML = [
+      ["Store", escapeHtml(l.store_label.replace("Chromium ", "")), escapeHtml(l.comparator || "no manifest")],
+      ["Live records", num(s.total_rows), tables.length ? tables.map(([t, n]) => `${escapeHtml(t)} ${num(n)}`).join(" · ") : "raw key/values"],
+      ["Raw records", num(l.records), `${num(st.live || 0)} live · ${num(st.tombstone || 0)} tombstones`],
+      ["Files", num(l.files.length), `${num(l.files.filter((f) => f.kind === "table").length)} tables · ${num(l.files.filter((f) => f.kind === "log").length)} logs`],
+      ["Last sequence", num(l.last_sequence), escapeHtml(l.current || "")],
+      ["Recovered", `<span id="rec-card">…</span>`, `<span id="rec-card-sub">older versions and deleted values</span>`],
+    ].map(([name, val, sub]) => `<div class="score-card"><div class="metric-name">${name}</div><div class="metric-value small">${val}</div><div class="metric-sub">${sub}</div></div>`).join("");
+    const notes = [];
+    if (l.errors.length) notes.push(["weak", "Some files couldn't be read fully", l.errors.join("; ")]);
+    if ((st.deleted || 0) + (st["older version"] || 0)) notes.push(["notable", "Earlier values survive", `${num(st.deleted || 0)} deleted and ${num(st["older version"] || 0)} superseded raw records haven't been compacted away yet. The decoded ones are in Recovered; every raw record is in the leveldb_records table.`]);
+    if (l.store === "indexeddb") notes.push(["notable", "IndexedDB values are JSON", "Query them with SQLite's JSON functions, e.g. json_extract(value, '$.text'). The original bytes are in value_raw."]);
+    $("#notices").innerHTML = notes.length
+      ? `<ul class="findings notices">${notes.map(([lvl, t, d]) => `<li data-level="${lvl}"><span class="level">${lvl === "weak" ? "note" : "info"}</span><strong>${escapeHtml(t)}</strong><span>${escapeHtml(d)}</span></li>`).join("")}</ul>`
+      : "";
+    return;
+  }
   const cards = [
     ["Tables", num(s.tables), `${num(s.views)} views · ${num(s.indexes)} indexes`],
     ["Live rows", num(s.total_rows), "across all tables"],
@@ -860,6 +890,8 @@ const SOURCE_HELP = {
   wal: "A WAL frame",
   journal: "A rollback journal page",
   "main file": "The main file, under a newer WAL version",
+  "leveldb log": "A LevelDB write-ahead log (.log) record",
+  "leveldb table": "A LevelDB sorted table (.ldb / .sst) record",
 };
 
 function renderRecGrid() {
@@ -899,7 +931,7 @@ function renderRecGrid() {
           return `<span title="${escapeHtml(SOURCE_HELP[r.source] || "")}${r.note ? " — " + escapeHtml(r.note) : ""}">${escapeHtml(r.source)}</span>${where ? ` <button type="button" class="link page-link" ${pageLink}>${escapeHtml(where)}</button>` : ""}${also}`;
         },
       },
-      { label: "rowid", get: (i) => (recs[i].rowid === null ? `<span class="null">lost</span>` : escapeHtml(recs[i].rowid)) },
+      { label: "rowid", get: (i) => (recs[i].rowid !== null ? escapeHtml(recs[i].rowid) : recs[i].source.startsWith("leveldb") ? "" : `<span class="null">lost</span>`) },
       {
         label: "conf.",
         get: (i) => `<span class="conf c-${recs[i].confidence}" title="${recs[i].inferred.length ? "Guessed types for: " + escapeHtml(recs[i].inferred.join(", ")) : ""}">${escapeHtml(recs[i].confidence)}${recs[i].inferred.length ? "*" : ""}</span>`,
@@ -1023,10 +1055,26 @@ $("#rec-as-db").addEventListener("click", () => {
 });
 
 // ---------- WAL & journal ----------
+function loadLevelDb() {
+  const body = $("#wal-body");
+  const l = state.summary.leveldb;
+  body.innerHTML = `<h3>LevelDB</h3>
+    <table class="meta-table ldb-meta">${[["Store", l.store_label], ["Comparator", l.comparator || "–"], ["CURRENT", l.current || "–"],
+      ["Last sequence", num(l.last_sequence)], ["Log number", num(l.log_number)], ["Next file", num(l.next_file)]]
+      .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join("")}</table>
+    <h3>Files</h3><div class="grid-box"><table class="data-grid"><thead><tr><th>file</th><th>kind</th><th>bytes</th><th>records</th><th>level</th><th>in current version</th><th>problem</th></tr></thead><tbody>${l.files
+      .map((f) => `<tr class="${f.in_version === false ? "dim" : ""}"><td>${escapeHtml(f.name)}</td><td>${f.kind}</td><td>${num(f.size)}</td><td>${num(f.records)}</td><td>${f.level ?? ""}</td>
+        <td>${f.in_version === undefined ? "" : f.in_version ? "yes" : "no: obsolete leftover"}</td><td class="bad-text">${escapeHtml(f.error)}</td></tr>`).join("")}</tbody></table></div>
+    <h3>Timeline <span class="hint-inline">every surviving put and delete, in sequence-number order (compaction drops superseded records, so this is what is left)</span></h3>
+    <div id="timeline-box"><p class="placeholder">Ordering records…</p></div>`;
+  loadTimeline();
+}
+
 async function loadWal() {
   const body = $("#wal-body");
   const s = state.summary;
   state.walLoaded = true;
+  if (s.kind === "leveldb") return loadLevelDb();
   if (!s.wal && !s.journal) {
     body.innerHTML = `<p class="placeholder">No -wal or -journal file sits next to this database.</p>`;
     return;
@@ -1135,10 +1183,10 @@ function renderTimeline() {
       <select id="tl-table" class="small-select"><option value="">All tables</option>${tables.map((t) => `<option ${t === timelineState.table ? "selected" : ""}>${escapeHtml(t)}</option>`).join("")}</select>
       ${d.truncated ? `<span class="hint-inline">first ${num(d.events.length)} changes shown</span>` : ""}
     </div>
-    <div class="grid-box timeline-grid"><table class="data-grid"><thead><tr><th class="act"></th><th>commit</th><th>frames</th><th>change</th><th>table</th><th>rowid</th><th>row time</th><th>what changed</th></tr></thead><tbody>${evs
+    <div class="grid-box timeline-grid"><table class="data-grid"><thead><tr><th class="act"></th><th>${d.kind === "leveldb" ? "sequence" : "commit"}</th><th>${d.kind === "leveldb" ? "file" : "frames"}</th><th>change</th><th>table</th><th>rowid</th><th>row time</th><th>what changed</th></tr></thead><tbody>${evs
       .map((e, i) => `<tr data-i="${i}"><td class="act"><button type="button" class="tag-btn" data-ev="${i}" title="Bookmark this change">☆</button></td>
-        <td><button type="button" class="link view-commit-tl" data-k="commit:${e.commit}" title="View the database as of this commit">#${e.commit}</button></td>
-        <td class="mono-cell">${e.first_frame}–${e.last_frame}</td>
+        <td>${e.kind === "leveldb" ? `<span class="mono-cell">${num(e.seq)}</span>` : `<button type="button" class="link view-commit-tl" data-k="commit:${e.commit}" title="View the database as of this commit">#${e.commit}</button>`}</td>
+        <td class="mono-cell">${e.kind === "leveldb" ? escapeHtml(e.file) : `${e.first_frame}–${e.last_frame}`}</td>
         <td><span class="op op-${e.op}">${e.op}</span></td><td>${escapeHtml(e.table)}</td><td>${e.rowid ?? ""}</td>
         <td>${e.ts ? `<span class="ts" title="${escapeHtml(e.ts_column)}">${escapeHtml(e.ts)}</span>` : ""}</td>
         <td class="cell-vals">${changeSummary(e)}</td></tr>`)
@@ -1151,7 +1199,7 @@ function renderTimeline() {
     b.addEventListener("click", () => {
       const e = evs[Number(b.dataset.ev)];
       const cells = e.after || e.before;
-      openTagDialog({ source: `WAL ${e.op} (commit ${e.commit})`, table: e.table, rowid: e.rowid, columns: e.columns, cells,
+      openTagDialog({ source: e.kind === "leveldb" ? `LevelDB ${e.op} (sequence ${e.seq}, ${e.file})` : `WAL ${e.op} (commit ${e.commit})`, table: e.table, rowid: e.rowid, columns: e.columns, cells,
         detail: e.op === "update" ? `changed: ${e.changed.join(", ")}; before: ${e.changed.map((c) => `${c}=${cellText(e.before[e.columns.indexOf(c)])}`).join(", ")}` : `frames ${e.first_frame}–${e.last_frame}` }, b);
     })
   );

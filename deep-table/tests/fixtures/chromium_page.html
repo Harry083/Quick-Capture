@@ -1,0 +1,47 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body><script>
+async function run(phase) {
+  if (phase === 1) {
+    localStorage.setItem("username", "alice@example.com");
+    localStorage.setItem("theme", "dark");
+    localStorage.setItem("draft", "Meet at the station at 10, don't tell Bob");
+    localStorage.setItem("unicode", "café ☕ 東京");
+    sessionStorage.setItem("cart", JSON.stringify({items: [1, 2, 3], total: 42.5}));
+    sessionStorage.setItem("tab", "inbox");
+  } else {
+    localStorage.setItem("theme", "light");       // older version stays behind
+    localStorage.removeItem("draft");             // deleted
+  }
+  const db = await new Promise((res, rej) => {
+    const r = indexedDB.open("chat", 1);
+    r.onupgradeneeded = () => {
+      const d = r.result;
+      const m = d.createObjectStore("messages", { keyPath: "id" });
+      m.createIndex("by_sender", "sender");
+      d.createObjectStore("settings");
+    };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+  const tx = db.transaction(["messages", "settings"], "readwrite");
+  const m = tx.objectStore("messages"), s = tx.objectStore("settings");
+  if (phase === 1) {
+    for (let i = 1; i <= 40; i++) {
+      m.put({ id: i, sender: i % 2 ? "alice" : "bob", text: `IDB message number ${i}`, sent: new Date(Date.UTC(2024, 0, 1, 9, i)),
+              read: i % 3 === 0, tags: ["a", "b"], meta: { n: i, f: i / 2, big: 2n ** 70n } });
+    }
+    s.put("dark", "theme"); s.put({ volume: 0.8, muted: false, list: [1, null, "x"] }, "audio");
+    s.put(new Uint8Array([1, 2, 3, 250]).buffer, "bytes");
+    s.put(new Map([["k", 1]]), "map"); s.put(new Set(["x", "y"]), "set");
+    // bulk data so records get flushed from the log into .ldb tables
+    const big = "x".repeat(20000);
+    for (let i = 0; i < 400; i++) s.put({ i, pad: big }, "bulk-" + i);
+  } else {
+    m.put({ id: 5, sender: "alice", text: "IDB message number 5 (edited)", sent: new Date(Date.UTC(2024, 0, 2)), read: true, tags: [], meta: {} });
+    m.delete(7); m.delete(8);
+    s.put("light", "theme");
+  }
+  await new Promise((res) => (tx.oncomplete = res));
+  db.close();
+  document.title = "done" + phase;
+}
+run(Number(location.hash.slice(1)));
+</script></body></html>

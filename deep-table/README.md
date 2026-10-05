@@ -1,13 +1,18 @@
 # Deep Table
 
-A desktop application for **forensic examination of SQLite databases**: the live tables, the rows SQLite has
-deleted but not yet overwritten, earlier versions of rows from the write-ahead log and rollback journal, and
-the BLOBs and timestamps apps hide in their columns. Everything you bookmark goes into a report with the
-evidence hashes.
+A desktop application for **forensic examination of SQLite databases and LevelDB stores**: the live data,
+the records that were deleted or overwritten but not yet destroyed, the order things happened in, and the
+BLOBs, timestamps and serialised values apps hide in their columns. Everything you bookmark goes into a report
+with the evidence hashes.
 
-It is the SQLite counterpart to [Quick Capture](../README.md) and is built the same way: a native window using the
-operating system's web engine through [pywebview](https://pywebview.flowrl.com/), with the same vanilla
-HTML/CSS/JS style kit and no build step. **No web server runs and no network port is opened.**
+- **SQLite:** live tables, carved deleted rows, WAL and rollback-journal history.
+- **LevelDB:** Chrome / Edge / Electron **Local Storage**, **Session Storage** and **IndexedDB** decoded into
+  tables (IndexedDB values become JSON), plus older and deleted values still in the log and table files. Any
+  other LevelDB store opens as raw key/value records.
+
+It is a companion to [Quick Capture](../README.md) and is built the same way: a native window using the operating
+system's web engine through [pywebview](https://pywebview.flowrl.com/), with the same vanilla HTML/CSS/JS style kit
+and no build step. **No web server runs and no network port is opened.**
 
 ## Evidence handling
 
@@ -46,6 +51,47 @@ the originals' hashes and modification times before and after a full session.
 | **Pages** | A map of every page coloured by type (table/index leaf and interior, overflow, freelist, pointer map), with pages that have free space or were changed in the WAL marked. Click one for its header, cells and a hex view coloured by region (header, cell pointers, cells, freeblocks, unallocated). |
 | **Bookmarks & report** | Bookmark any row (live, query result or recovered) with a label and a note. The HTML/JSON report holds the case details, the evidence files and their hashes, the database header, WAL/journal summary, every bookmark with its values, saved queries re-run at report time, recovered deleted records with provenance, and the query log. CSV export is available for any table, query or recovered set, with an extra UTC column next to each timestamp. |
 
+## LevelDB and browser storage
+
+Open a LevelDB **folder** (the *Folder…* button), or any file inside one, e.g.:
+
+| Store | Typical path (Chrome profile; Edge, Brave and Electron apps are alike) |
+|---|---|
+| Local Storage | `Default/Local Storage/leveldb` |
+| Session Storage | `Default/Session Storage` |
+| IndexedDB | `Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb` |
+
+Every file in the folder is hashed, copied and verified, the same as for SQLite. The folder's digest in the
+report is the SHA-256 of the sorted list of file hashes. Deep Table reads the copies with its own LevelDB
+reader (`backend/leveldb.py`):
+
+- **Files:** `.log` files with CRC32C checks and records split across blocks, `.ldb`/`.sst` tables with
+  Snappy-compressed blocks, and the `MANIFEST` (comparator, last sequence, and which files are still part of
+  the current version; leftovers are flagged as obsolete).
+- **States:** every record from every file gets one. LevelDB never edits in place, so for each key the
+  highest sequence number is **live**, earlier puts are **older versions**, and puts followed by a tombstone
+  are **deleted**. The same record found in both a log and a table is shown once, with both locations.
+
+Chromium stores are then decoded (`backend/chromium.py`) into a database Deep Table builds itself, so Tables,
+Search all, Query, bookmarks and reports work as they do for SQLite:
+
+| Table | What's in it |
+|---|---|
+| `local_storage`, `local_storage_origins` | origin, key and value (Latin-1 / UTF-16 decoded); per-origin size and last-modified time |
+| `session_storage` | origin, key and value, with the namespace and map they belong to |
+| `indexeddb_records` | database, object store, key (decoded IDB key) and **value as JSON**, decoded from V8's serialisation format: objects, arrays, strings, numbers, BigInt, Date, Map, Set, RegExp, ArrayBuffer and typed arrays, Error, and Blob/File references. Query it with `json_extract(value, '$.field')`; the original bytes are in `value_raw`. |
+| `indexeddb_databases`, `indexeddb_object_stores` | names, versions, key paths |
+| `leveldb_records` | every raw record from every file: sequence, state, put/delete, key, value, file, offset, checksum |
+
+The decoded tables hold the **live** records. Older versions and deleted values appear in **Recovered** with
+their sequence number and file, and in the rebuilt *Deleted and older records* view. **LevelDB & timeline**
+lists the files and every surviving put and delete in sequence order, with before → after for updates.
+Compactions drop superseded records, so the timeline is what's left, not complete history.
+
+Session Storage is cleared when a browsing session ends, so its values often survive **only** as deleted
+records. The test suite uses stores written by a real Chromium (`tests/fixtures/`): it checks that deleted
+Local Storage, Session Storage and IndexedDB values come back, and that every IndexedDB value decodes.
+
 ### What recovery can and can't do
 
 - If the app used `secure_delete`, freed space is zeroed. The overview says so (*free space is zeroed*). The
@@ -59,7 +105,8 @@ the originals' hashes and modification times before and after a full session.
 - Records are matched to tables by column count and the types each column's affinity allows. Tables with one
   or two columns match random bytes easily, so those carves are only accepted on strong evidence.
 - Not covered yet: deleted index entries, deleted records whose payload spilled onto overflow pages (the
-  on-page part is still carved), and non-SQLite stores (LevelDB/IndexedDB, Realm, the Windows registry).
+  on-page part is still carved), and other stores (Realm, the Windows registry). LevelDB values Chromium
+  moved into external blob files are referenced but not read.
   Formats such as ABX, LZFSE and Java serialisation are identified but not decoded.
 
 ## Requirements
@@ -125,11 +172,14 @@ deep-table/
 │   ├── sqlite_format.py  pure-Python SQLite parser: header, b-trees, records, overflow, freelist, WAL, journal
 │   ├── recovery.py       deleted-record carving (freeblocks, unallocated, freelist) and table signatures
 │   ├── history.py        rows from WAL frames and journal pages
+│   ├── leveldb.py        pure-Python LevelDB reader: logs, tables (Snappy), MANIFEST, record states
+│   ├── chromium.py       Local Storage, Session Storage, IndexedDB keys/metadata and V8 value decoding
+│   ├── leveldb_case.py   builds the queryable database, recovered records and timeline for a LevelDB store
 │   ├── decoders.py       timestamps, BLOB type detection, plist / NSKeyedArchiver, protobuf, hex
 │   ├── transforms.py     decode chain: Base64, hex, zlib/deflate/gzip, Snappy, LZ4, MessagePack, Bencode, ...
 │   └── report.py         HTML / JSON report and CSV export
 ├── frontend/             vanilla HTML/CSS/JS UI; styles.css + fonts/ are the shared tool style kit
-├── tests/                pytest suite (python -m pytest tests)
+├── tests/                pytest suite (python -m pytest tests); fixtures/ holds real Chromium stores
 ├── app.py                entry point: opens the native window (no server, no port)
 ├── DeepTable.spec       PyInstaller one-file build
 ├── deeptable.ico/.png   the app icon

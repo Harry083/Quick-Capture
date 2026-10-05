@@ -28,7 +28,8 @@ except ImportError:  # pragma: no cover
     OPEN_DIALOG = SAVE_DIALOG = FOLDER_DIALOG = None
 
 CASE_FIELDS = ("case_number", "evidence_number", "examiner", "description", "notes")
-DB_FILE_TYPES = ("SQLite databases (*.db;*.sqlite;*.sqlite3;*.db3;*.sqlitedb;*.storedata)", "All files (*.*)")
+DB_FILE_TYPES = ("SQLite databases (*.db;*.sqlite;*.sqlite3;*.db3;*.sqlitedb;*.storedata)",
+                 "LevelDB files (CURRENT;*.ldb;*.log;MANIFEST-*)", "All files (*.*)")
 
 
 class ApiError(Exception):
@@ -109,12 +110,16 @@ class Api:
 
     # ---------- case ----------
     @_result
-    def pick_database(self, start: str = ""):
+    def pick_database(self, start: str = "", mode: str = "file"):
+        """A SQLite file, or (mode "folder") a LevelDB folder such as Chrome's IndexedDB/*.indexeddb.leveldb."""
         if self._window is None:
             raise ApiError("No window to show a file dialog in")
         start_dir = start if os.path.isdir(start) else os.path.dirname(start)
-        chosen = self._window.create_file_dialog(OPEN_DIALOG, directory=start_dir if os.path.isdir(start_dir) else "",
-                                                 file_types=DB_FILE_TYPES)
+        start_dir = start_dir if os.path.isdir(start_dir) else ""
+        if mode == "folder":
+            chosen = self._window.create_file_dialog(FOLDER_DIALOG, directory=start_dir)
+        else:
+            chosen = self._window.create_file_dialog(OPEN_DIALOG, directory=start_dir, file_types=DB_FILE_TYPES)
         return {"path": _first_path(chosen)}
 
     @_result

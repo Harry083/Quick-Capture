@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import decoders, transforms
+from . import decoders, leveldb, leveldb_case, transforms
 from .history import journal_records, wal_records
 from .recovery import Carved, TableSig, dedupe, recover_database
 from .sqlite_format import (
@@ -57,6 +57,14 @@ def hash_file(path: Path) -> dict:
             for h in hs.values():
                 h.update(chunk)
     return {name: h.hexdigest() for name, h in hs.items()}
+
+
+def _is_sqlite_file(path: Path) -> bool:
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(16) == b"SQLite format 3\x00"
+    except OSError:
+        return False
 
 
 def quote_ident(name: str) -> str:
@@ -148,8 +156,13 @@ def _deny_writes(action, arg1=None, arg2=None, *_args):
 class Case:
     def __init__(self, path: str, case_info: dict | None = None):
         src = Path(path).expanduser()
-        if not src.is_file():
+        if not src.exists():
             raise CaseError(f"File not found: {path}")
+        self.kind = "sqlite"
+        if src.is_dir() or (not _is_sqlite_file(src) and leveldb.looks_like_leveldb(src)):
+            self.kind = "leveldb"
+        elif not src.is_file():
+            raise CaseError(f"Not a file: {path}")
         self.opened_at = _now()
         self.case_info = dict(case_info or {})
         self.tmp = Path(tempfile.mkdtemp(prefix="deep-table-"))
@@ -165,11 +178,17 @@ class Case:
         self._recovered: list[dict] | None = None
         self._recover_lock = threading.Lock()
         self._cancel = threading.Event()
+        self.ldb: leveldb_case.Decoded | None = None
         try:
-            self.evidence = self._acquire(src)
-            self.data = self.evidence["database"].copy.read_bytes()
+            if self.kind == "leveldb":
+                self.evidence = self._acquire_dir(leveldb.find_root(src))
+                self.ldb = leveldb_case.Decoded(leveldb.open_dir(self.tmp / "pristine" / self._dir_name))
+                self.data = leveldb_case.build_database(self.ldb, self.tmp)
+            else:
+                self.evidence = self._acquire(src)
+                self.data = self.evidence["database"].copy.read_bytes()
             self.main = SqliteFile(self.data)
-        except FormatError as exc:
+        except (FormatError, leveldb.LevelDbError) as exc:
             self.close()
             raise CaseError(str(exc)) from exc
         except BaseException:
@@ -221,6 +240,36 @@ class Case:
                                  datetime.fromtimestamp(st.st_mtime, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
         return out
 
+    def _acquire_dir(self, root: Path) -> dict[str, Evidence]:
+        """A LevelDB directory: every file in it is hashed, copied and verified. The "database" entry stands
+        for the directory as a whole; its digest is the SHA-256 of the sorted list of file hashes."""
+        if not root.is_dir():
+            raise CaseError(f"Folder not found: {root}")
+        files = sorted(p for p in root.iterdir() if p.is_file())
+        if not files:
+            raise CaseError(f"{root} is empty")
+        self._dir_name = root.name or "leveldb"
+        dest_dir = self.tmp / "pristine" / self._dir_name
+        dest_dir.mkdir(parents=True)
+        out, lines, total, newest = {}, [], 0, 0.0
+        for path in files:
+            st = path.stat()
+            before = hash_file(path)
+            dest = dest_dir / path.name
+            shutil.copyfile(path, dest)
+            if hash_file(dest) != before:
+                raise CaseError(f"Working copy of {path.name} doesn't match the original (is the browser running?)")
+            os.chmod(dest, 0o444)
+            out[path.name] = Evidence(path.name, str(path.resolve()), dest, st.st_size, before,
+                                      datetime.fromtimestamp(st.st_mtime, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
+            lines.append(f"{before['sha256']}  {path.name}")
+            total += st.st_size
+            newest = max(newest, st.st_mtime)
+        digest = hashlib.sha256("\n".join(lines).encode()).hexdigest()
+        folder = Evidence("leveldb", str(root.resolve()), dest_dir, total, {"sha256": digest},
+                          datetime.fromtimestamp(newest, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
+        return {"database": folder, **out}
+
     def close(self) -> None:
         for v in list(getattr(self, "_views", {}).values()):
             try:
@@ -240,6 +289,9 @@ class Case:
 
     # ------------------------------------------------------------ views
     def view_options(self) -> list[dict]:
+        if self.kind == "leveldb":
+            return [{"key": "current", "label": "Live records"},
+                    {"key": "recovered", "label": "Deleted and older records (rebuilt as a database)"}]
         out = []
         if self.wal and self.wal.valid_frames:
             commits = self.wal.commits()
@@ -368,7 +420,13 @@ class Case:
             "wal": self.wal_summary(),
             "journal": self.journal_summary(),
             "free_space": self.free_space_stats(),
+            "kind": self.kind,
+            "leveldb": leveldb_case.summary(self.ldb) if self.ldb else None,
         }
+        if self.kind == "leveldb":
+            out["evidence"] = [e.public() for k, e in self.evidence.items() if k != "database"]
+            decoded = out["leveldb"]["decoded"]
+            out["total_rows"] = sum(decoded.values()) if decoded else out["leveldb"]["states"].get("live", 0)
         return out
 
     def wal_summary(self) -> dict | None:
@@ -398,6 +456,8 @@ class Case:
 
     def free_space_stats(self) -> dict:
         """How much free space there is to recover from, and whether it looks wiped (secure_delete)."""
+        if self.kind == "leveldb":
+            return {"bytes": 0, "zero_ratio": 0, "wiped": False}
         free = zero = 0
         trunks, leaves = self.main.freelist()
         for pg in trunks + leaves:
@@ -653,6 +713,8 @@ class Case:
         return f"page {r['page']} offset {r['offset']}" if r["page"] else ""
 
     def _recover(self) -> list[dict]:
+        if self.kind == "leveldb":
+            return leveldb_case.recovered(self.ldb)
         sigs = self.signatures("current")
         main_schema = self.main.schema()
         main_map = self.main.page_map(main_schema)
@@ -942,6 +1004,8 @@ class Case:
     def timeline(self, max_events: int = 20000) -> dict:
         """What each WAL transaction did, row by row: the main file is the state before the first commit;
         each commit's pages are applied in turn and the rows of every table it touched are compared."""
+        if self.kind == "leveldb":
+            return leveldb_case.timeline(self.ldb, lambda cols, rows: self.render_rows(cols, rows, {}), max_events)
         if not self.wal or not self.wal.valid_frames:
             return {"events": [], "commits": [], "truncated": False}
         sigs = {s.name: s for s in self.signatures("current")}

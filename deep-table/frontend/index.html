@@ -38,10 +38,11 @@
         <div class="panel-title">01 · Evidence</div>
         <span id="evidence-pill" class="pill">no database open</span>
       </div>
-      <h2>SQLite database <span class="hint">its -wal and -journal are picked up automatically</span></h2>
+      <h2>SQLite database or LevelDB folder <span class="hint">-wal / -journal are picked up automatically; LevelDB covers Chrome &amp; Electron Local Storage, Session Storage and IndexedDB</span></h2>
       <div class="path-input-row">
-        <input type="text" id="db-input" class="path-input" placeholder="C:\Evidence\sms.db  or  /cases/001/History" />
-        <button class="btn browse-btn" id="browse-db" type="button">Browse…</button>
+        <input type="text" id="db-input" class="path-input" placeholder="C:\Evidence\sms.db  or  …\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb" />
+        <button class="btn browse-btn" id="browse-db" type="button" title="Choose a SQLite database file">File…</button>
+        <button class="btn browse-btn" id="browse-dir" type="button" title="Choose a LevelDB folder, e.g. Chrome's Local Storage/leveldb or IndexedDB/*.indexeddb.leveldb">Folder…</button>
         <button class="btn btn-primary" id="open-btn" type="button" disabled><span class="btn-icon" aria-hidden="true">▶</span>Open</button>
       </div>
       <div class="file-status" id="db-status"></div>
@@ -77,8 +78,8 @@
         <button type="button" role="tab" data-tab="search" aria-selected="false">Search all</button>
         <button type="button" role="tab" data-tab="query" aria-selected="false">Query</button>
         <button type="button" role="tab" data-tab="recovered" aria-selected="false">Recovered <span class="count" id="count-recovered"></span></button>
-        <button type="button" role="tab" data-tab="wal" aria-selected="false">WAL &amp; journal</button>
-        <button type="button" role="tab" data-tab="pages" aria-selected="false">Pages</button>
+        <button type="button" role="tab" data-tab="wal" aria-selected="false" id="wal-tab">WAL &amp; journal</button>
+        <button type="button" role="tab" data-tab="pages" aria-selected="false" id="pages-tab">Pages</button>
         <button type="button" role="tab" data-tab="report" aria-selected="false">Bookmarks &amp; report <span class="count" id="count-tags"></span></button>
       </div>
       <label class="view-select" title="Which version of the database to read. With a WAL, each commit can be viewed on its own.">
@@ -156,7 +157,10 @@
       <div class="rec-banner"><span>Recovered records are also rebuilt as a database of their own, one table per source table with
         columns saying where each record came from, so you can query them like live data.</span>
         <button class="btn small-btn" id="rec-as-db" type="button">Query as a database</button></div>
-      <p class="guide">Records carved from freeblocks, unallocated space and freelist pages, plus earlier versions of rows
+      <p class="guide ldb-only hidden">Values LevelDB still holds for keys that were later overwritten (<strong>older version</strong>) or
+        deleted (<strong>deleted</strong>): it never edits in place, so earlier records survive in its .log and .ldb files until a
+        compaction drops them. Each shows its sequence number and file.</p>
+      <p class="guide sqlite-only">Records carved from freeblocks, unallocated space and freelist pages, plus earlier versions of rows
         from the main file, WAL frames and journal pages. Each one is compared with the live table: <strong>deleted</strong>
         (the rowid is gone), <strong>older version</strong> (the row has since changed) or <strong>live</strong> (a copy of a row that's still there).</p>
       <div class="split">
