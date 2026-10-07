@@ -124,3 +124,16 @@ def test_api_round_trip(messages_db):
     assert api.close_case()["ok"]
     assert not api.rows("current", "contact")["ok"]
     assert not api.open_case(os.devnull + "-missing")["ok"]
+
+
+def test_file_dialog_filters_are_valid():
+    """pywebview raises ValueError for any filter it can't parse (the File… button broke on one).
+    This is its validation pattern (webview/util.py, parse_file_type)."""
+    import re
+
+    from backend import api
+
+    pattern = r'^([\w ]+)\((\*(?:\.(?:\w+|\*))*(?:;\*(?:\.(?:\w+|\*))*)*)\)$'
+    filters = list(api.DB_FILE_TYPES) + [f"{k.upper()} file (*.{k})" for k in ("csv", "html", "json", "png", "bin")]
+    for f in filters:
+        assert re.search(pattern, f), f

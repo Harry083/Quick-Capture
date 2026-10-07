@@ -29,7 +29,10 @@ except ImportError:  # pragma: no cover
 
 CASE_FIELDS = ("case_number", "evidence_number", "examiner", "description", "notes")
 DB_FILE_TYPES = ("SQLite databases (*.db;*.sqlite;*.sqlite3;*.db3;*.sqlitedb;*.storedata)",
-                 "LevelDB files (CURRENT;*.ldb;*.log;MANIFEST-*)", "All files (*.*)")
+                 "LevelDB files (*.ldb;*.log)", "All files (*)")
+# pywebview accepts only "Name (*.ext;*.ext)" patterns, so CURRENT and MANIFEST-* can't be listed: they show
+# under "All files" (a bare "*", since "*.*" skips names without a dot on Linux). Any file in a LevelDB folder
+# opens the folder, and the Folder… button picks it directly.
 
 
 class ApiError(Exception):
@@ -77,7 +80,7 @@ class Api:
         start = os.path.dirname(self._case.evidence["database"].original) if self._case else ""
         chosen = self._window.create_file_dialog(
             SAVE_DIALOG, directory=start if os.path.isdir(start) else "", save_filename=filename,
-            file_types=(f"{kind.upper()} file (*.{kind})", "All files (*.*)"))
+            file_types=(f"{kind.upper()} file (*.{kind})", "All files (*)"))
         return _first_path(chosen)
 
     def _write(self, path: str, content, binary: bool = False) -> dict:
