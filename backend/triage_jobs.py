@@ -1,4 +1,4 @@
-"""In-memory background jobs: each triage runs on its own thread and the page polls for progress."""
+"""In-memory triage jobs (separate from imaging jobs): each triage runs on its own thread and the page polls for progress."""
 from __future__ import annotations
 
 import threading
@@ -76,4 +76,4 @@ class JobManager:
             job.updated_at = time.time()
 
 
-job_manager = JobManager()
+triage_jobs = JobManager()

@@ -1,4 +1,4 @@
-"""In-memory background job manager: triage → (pause for a decision if needed) → image → verify."""
+"""In-memory background job manager: scan → (pause for a decision if needed) → image → verify."""
 from __future__ import annotations
 
 import asyncio
@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from . import imager
-from . import triage as triage_mod
+from . import scan as scan_mod
 
 
 @dataclass
@@ -27,7 +27,7 @@ class Job:
     bad_sectors: int = 0
     detail: str = ""
     error: Optional[str] = None
-    triage: Optional[dict] = None
+    scan: Optional[dict] = None
     result: Optional[dict] = None
     device: Optional[dict] = None
     created_at: float = field(default_factory=time.time)
@@ -51,7 +51,7 @@ class Job:
             "bad_sectors": self.bad_sectors,
             "detail": self.detail,
             "error": self.error,
-            "triage": self.triage,
+            "scan": self.scan,
             "result": self.result,
             "device": self.device,
             "created_at": self.created_at,
@@ -101,7 +101,7 @@ class JobManager:
         def touch() -> None:
             job.updated_at = time.time()
 
-        def on_triage(p: triage_mod.TriageProgress) -> None:
+        def on_scan(p: scan_mod.ScanProgress) -> None:
             job.stage, job.percent, job.detail = p.stage, p.percent, p.detail
             loop.call_soon_threadsafe(touch)
 
@@ -114,19 +114,19 @@ class JobManager:
             loop.call_soon_threadsafe(touch)
 
         try:
-            if opts["triage_mode"] != "skip":
+            if opts["scan_mode"] != "skip":
                 job.stage = "scan"
-                job.triage = await asyncio.to_thread(
-                    triage_mod.run_triage, opts["source"], opts["triage_mode"], on_triage, job.cancel_event
+                job.scan = await asyncio.to_thread(
+                    scan_mod.run_scan, opts["source"], opts["scan_mode"], on_scan, job.cancel_event
                 )
                 if job.cancel_event.is_set():
                     raise imager.ImagingCancelled()
 
-                if opts.get("triage_only"):
+                if opts.get("scan_only"):
                     job.status, job.stage, job.percent = "done", "done", 100.0
                     return
 
-                if job.triage["verdict"] != "clear":
+                if job.scan["verdict"] != "clear":
                     job.status = "awaiting"
                     job.stage = "awaiting decision"
                     touch()
@@ -161,7 +161,7 @@ class JobManager:
                 job.result["log_path"] = write_acquisition_log(job)
             except OSError as exc:
                 job.result["log_error"] = str(exc)
-        except (imager.ImagingCancelled, triage_mod.TriageCancelled):
+        except (imager.ImagingCancelled, scan_mod.ScanCancelled):
             job.status = job.stage = "cancelled"
         except (imager.ImagingError, OSError, ValueError) as exc:
             job.status = job.stage = "error"

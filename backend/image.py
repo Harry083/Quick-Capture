@@ -1,4 +1,4 @@
-"""Random-access readers for evidence images: EWF-E01 (EnCase 1-7 / libewf / FTK) and raw (dd).
+"""Random-access readers for triage: EWF-E01 (EnCase 1-7 / libewf / FTK) and raw (dd).
 
 Nothing is decompressed up front. Opening an E01 walks the section descriptors of every segment (a few
 hundred bytes each) and notes where the chunk tables are. A table's offsets are loaded the first time a
@@ -15,6 +15,8 @@ import zlib
 from collections import OrderedDict
 from pathlib import Path
 
+from .ewf import segment_extension
+
 EWF_SIGNATURE = b"EVF\x09\x0d\x0a\xff\x00"
 EWF2_SIGNATURE = b"EVF2\x0d\x0a\x81\x00"
 CHUNK_CACHE = 512  # decompressed chunks kept (16 MiB at the usual 32 KiB chunk)
@@ -29,15 +31,6 @@ HEADER_FIELDS = {
 
 class ImageError(Exception):
     """The file isn't a readable image; the message is shown to the user."""
-
-
-def segment_extension(n: int) -> str:
-    """1 -> E01 ... 99 -> E99, 100 -> EAA ... EZZ, FAA ... ZZZ."""
-    if n < 100:
-        return f"E{n:02d}"
-    n -= 100
-    first, rest = divmod(n, 26 * 26)
-    return chr(ord("E") + first) + chr(65 + rest // 26) + chr(65 + rest % 26)
 
 
 def segment_paths(first: str | Path) -> list[Path]:

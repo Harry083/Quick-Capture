@@ -1,4 +1,4 @@
-"""Tests for Quick Triage. Run with:  python -m pytest tests
+"""Tests for the Triage tab. Run with:  python -m pytest tests
 
 The full-disk tests build a GPT disk with Windows (NTFS), Linux (ext4) and BitLocker partitions. The NTFS
 part needs mkntfs + ntfs-3g and root (FUSE mount); without them those checks are skipped. E01 files are
@@ -7,7 +7,6 @@ written by Quick Capture's own writer and, if installed, by libewf's ewfacquire.
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import random
 import shutil
 import subprocess
@@ -20,14 +19,12 @@ import pytest
 HERE = Path(__file__).resolve().parent
 sys.path[:0] = [str(HERE), str(HERE.parent)]
 
-import fixtures  # noqa: E402
+import triage_fixtures as fixtures  # noqa: E402
 import hivegen as h  # noqa: E402
+from backend import ewf  # noqa: E402
 from backend import image as image_mod  # noqa: E402
 from backend.regf import Hive  # noqa: E402
 from backend.triage import TriageCancelled, run_triage  # noqa: E402
-
-QC_EWF = HERE.parent.parent / "backend" / "ewf.py"  # Quick Capture's E01 writer, next door in this repo
-
 
 @pytest.fixture(scope="session")
 def disk(tmp_path_factory) -> Path:
@@ -36,18 +33,8 @@ def disk(tmp_path_factory) -> Path:
     return fixtures.build_disk(tmp_path_factory.mktemp("disk"))
 
 
-def _qc_writer():
-    if not QC_EWF.exists():
-        pytest.skip("Quick Capture's ewf.py not found")
-    spec = importlib.util.spec_from_file_location("qc_ewf", QC_EWF)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
 @pytest.fixture(scope="session")
 def e01(disk: Path) -> Path:
-    ewf = _qc_writer()
     data = disk.read_bytes()
     w = ewf.EwfWriter(disk.with_name("qc"), len(data), segment_size=24 * 1024 * 1024, compression="fast",
                       case_info={"case_number": "C-1", "examiner": "HS"}, device_info={"model": "Test SSD", "serial": "SN1"})

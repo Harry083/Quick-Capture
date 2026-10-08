@@ -8,7 +8,8 @@ import platform
 from datetime import datetime, timezone
 from pathlib import Path
 
-APP_VERSION = "QT 1.0"
+from .ewf import APP_VERSION
+
 FONT_PATH = Path(__file__).resolve().parent.parent / "frontend" / "fonts" / "manrope-variable.woff2"
 OS_LABELS = (
     ("name", "Operating system"), ("edition", "Edition"), ("version", "Version"), ("build", "Build"),
@@ -143,7 +144,7 @@ def generate_report_html(job) -> str:
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Quick Triage Report — {_esc(Path(ctx['image_path']).name)}</title>
+<title>Quick Capture Triage — {_esc(Path(ctx['image_path']).name)}</title>
 <style>
   /* Same tokens as the app (frontend/styles.css). Manrope is embedded so saved copies keep it. */
   @font-face {{
@@ -206,7 +207,7 @@ def generate_report_html(job) -> str:
 </head>
 <body>
 <div class="wrap">
-  <p class="eyebrow">Quick Triage · triage report</p>
+  <p class="eyebrow">Quick Capture · triage report</p>
   <h1>{_esc(Path(ctx['image_path']).name)}</h1>
   <div class="meta-line">Generated {_esc(generated)} · {_esc(ctx['tool'])} · {_esc(ctx['host']['node'])}
     ({_esc(ctx['host']['platform'])}) · took {r.get('duration', 0):.1f}s</div>
@@ -244,7 +245,7 @@ def generate_report_html(job) -> str:
     <p class="muted" style="margin:1rem 0 0">Stored hashes are read from the image, not recomputed. Triage reads metadata only.</p>
   </div>
 
-  <div class="site-footer">Quick Triage · a Harry Smallwood tool</div>
+  <div class="site-footer">Quick Capture · a Harry Smallwood tool</div>
 </div>
 </body>
 </html>
