@@ -178,7 +178,8 @@ quick-capture/
 ├── QuickCapture.spec     PyInstaller one-file build (Windows .exe requests Administrator)
 ├── quickcapture.ico/.png the app icon
 ├── quick-capture.desktop Linux menu launcher (via pkexec)
-└── requirements.txt
+├── requirements.txt
+└── quick-triage/         companion app: quick triage of E01 images (OS, device, users, last saved file)
 ```
 
 ## License

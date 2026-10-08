@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Quick Triage</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#">
+      <span class="brand-mark">QT</span>
+      <span class="brand-text">Quick Triage</span>
+    </a>
+    <nav class="primary-nav">
+      <ul>
+        <li><a href="https://harrylsmallwood.com/quick-triage" target="_blank" rel="noopener">Guide</a></li>
+        <li><a class="nav-cta" href="https://github.com/Harry083/Quick-Capture" target="_blank" rel="noopener">GitHub ↗</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero">
+    <p class="hero-eyebrow">QT · running locally, your evidence never leaves this machine</p>
+    <h1>Quick Triage</h1>
+    <p class="lede">Opens an E01 (or raw) image and tells you, in seconds, what's on it: the operating system, the device
+      it came from, its user accounts and the last file each user saved. It reads metadata only, with no full index.</p>
+  </section>
+
+  <section class="panel picker-card">
+    <div class="card-title-row">
+      <div class="panel-title">01 · Image</div>
+      <span id="image-pill" class="pill">no image</span>
+    </div>
+    <h2>Evidence image <span class="hint">E01 (any segment set) or raw dd / .001</span></h2>
+    <div class="path-input-row">
+      <input type="text" id="image-input" class="path-input" placeholder="D:\Evidence\Case-001\EV001.E01" />
+      <button class="btn browse-btn" id="browse-image" type="button">Browse…</button>
+    </div>
+    <div class="file-status" id="image-status"></div>
+    <div id="image-meta" class="image-meta hidden"></div>
+  </section>
+
+  <section class="action-row">
+    <button id="cancel-btn" class="btn cancel-btn hidden" type="button">Cancel</button>
+    <button id="run-btn" class="btn btn-primary run-btn" type="button" disabled><span class="btn-icon" aria-hidden="true">▶</span>Triage</button>
+  </section>
+
+  <section id="progress-section" class="panel progress-section hidden">
+    <div class="progress-head">
+      <span id="progress-stage" class="progress-stage">Starting…</span>
+      <span id="progress-time" class="progress-speed"></span>
+    </div>
+    <div class="progress-bar-track">
+      <div id="progress-bar-fill" class="progress-bar-fill"></div>
+    </div>
+    <div class="progress-label" id="progress-label"></div>
+  </section>
+
+  <section id="error-section" class="error-section hidden"></section>
+
+  <section id="results-section" class="results-section hidden">
+    <div class="panel">
+      <div class="results-header">
+        <h2>Triage results <span id="results-time" class="hint"></span></h2>
+        <div class="report-actions">
+          <button id="report-view-btn" class="btn btn-primary report-btn" type="button"><span class="btn-icon" aria-hidden="true">↗</span>View Report</button>
+          <button id="report-html-btn" class="btn report-btn" type="button">Save HTML</button>
+          <button id="report-json-btn" class="btn report-btn" type="button">Save JSON</button>
+        </div>
+      </div>
+      <div class="tabs hidden" id="system-tabs" role="tablist"></div>
+      <div class="score-cards" id="summary-cards"></div>
+      <div id="saved-files" class="file-status"></div>
+    </div>
+
+    <div id="system-view"></div>
+
+    <section class="panel" id="findings-panel">
+      <div class="panel-title">05 · Findings</div>
+      <h2>Worth knowing <span class="hint">encryption, damage, what wasn't examined</span></h2>
+      <ul id="findings" class="findings"></ul>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title">06 · Image</div>
+      <h2>Evidence and partitions <span class="hint">from the image's own metadata</span></h2>
+      <div class="two-col">
+        <div id="evidence-table" class="metadata-panel"></div>
+        <div id="header-table" class="metadata-panel"></div>
+      </div>
+      <div id="volume-table" class="metadata-panel volume-panel"></div>
+    </section>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>Quick Triage · a <a href="https://harrylsmallwood.com/tools" target="_blank" rel="noopener">Harry Smallwood tool</a></span>
+    <span class="mono">desktop · offline</span>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

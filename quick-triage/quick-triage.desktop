@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Quick Triage
+Comment=Quick triage of E01 / raw evidence images
+# Edit the path to where you unpacked the build. No root needed: it only reads image files.
+Exec=/opt/QuickTriage/QuickTriage
+Icon=/opt/QuickTriage/quicktriage.png
+Terminal=false
+Categories=Utility;System;
