@@ -9,6 +9,7 @@ const state = {
   pollTimer: null,
   alertShownFor: null,
   reportJobId: null,
+  lastImagePath: null,
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -27,7 +28,7 @@ const progressStage = $("#progress-stage");
 const progressSpeed = $("#progress-speed");
 const errorSection = $("#error-section");
 const alertSection = $("#alert-section");
-const triageSection = $("#triage-section");
+const scanSection = $("#scan-section");
 const resultsSection = $("#results-section");
 const depthSelect = $("#depth-select");
 const scanEnabled = $("#scan-enabled");
@@ -84,8 +85,27 @@ async function api(method, ...args) {
 
 function escapeHtml(str) {
   const div = document.createElement("div");
-  div.textContent = str;
+  div.textContent = str === null || str === undefined ? "" : String(str);
   return div.innerHTML;
+}
+
+// ---------- Capture / Triage tabs ----------
+function setMode(mode) {
+  document.querySelectorAll("#mode-tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.mode === mode)));
+  $("#capture-view").classList.toggle("hidden", mode !== "capture");
+  $("#triage-view").classList.toggle("hidden", mode !== "triage");
+  try {
+    localStorage.setItem("qc-mode", mode);
+  } catch (e) {
+    /* storage can be unavailable; the tab just isn't remembered */
+  }
+}
+
+document.querySelectorAll("#mode-tabs button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+try {
+  if (localStorage.getItem("qc-mode") === "triage") setMode("triage");
+} catch (e) {
+  /* ignore */
 }
 
 // ---------- Health / options ----------
@@ -111,7 +131,7 @@ async function loadHealth() {
 
 async function loadOptions() {
   const data = await api("options");
-  scanOptions.innerHTML = Object.keys(data.triage_modes)
+  scanOptions.innerHTML = Object.keys(data.scan_modes)
     .filter((mode) => mode !== "skip" && SCAN_INFO[mode])
     .map((mode) => `<label class="scan-option">
         <input type="radio" name="scan-mode" value="${mode}" ${mode === "quick" ? "checked" : ""} />
@@ -272,7 +292,7 @@ function updateButtons() {
 }
 
 // ---------- Browse (the OS file / folder dialog) ----------
-document.querySelectorAll(".browse-btn").forEach((btn) =>
+document.querySelectorAll("#capture-view .browse-btn").forEach((btn) =>
   btn.addEventListener("click", async () => {
     const input = btn.closest(".path-input-row").querySelector(".path-input");
     const isDevice = input.value.startsWith("\\\\.\\") || input.value.startsWith("/dev/");
@@ -309,7 +329,7 @@ function collectCase() {
 async function start(scanOnly) {
   errorSection.classList.add("hidden");
   alertSection.classList.add("hidden");
-  triageSection.classList.add("hidden");
+  scanSection.classList.add("hidden");
   resultsSection.classList.add("hidden");
   progressSection.classList.remove("hidden");
   progressFill.style.width = "0%";
@@ -335,8 +355,8 @@ async function start(scanOnly) {
     io_depth: Number(depthSelect.value),
     compression: compressionSelect.value,
     segment_size_mb: Number(segmentSelect.value),
-    triage_mode: scanEnabled.checked || scanOnly ? selectedScanMode() : "skip",
-    triage_only: scanOnly,
+    scan_mode: scanEnabled.checked || scanOnly ? selectedScanMode() : "skip",
+    scan_only: scanOnly,
     verify: $("#verify-check").checked,
     case: collectCase(),
   };
@@ -360,7 +380,7 @@ function pollJob() {
         throw new Error("Lost track of job");
       });
       updateProgress(job);
-      if (job.triage) showTriage(job.triage);
+      if (job.scan) showScan(job.scan);
 
       if (job.status === "awaiting") {
         showAlert(job);
@@ -425,7 +445,7 @@ function findingsHtml(findings) {
 function showAlert(job) {
   if (state.alertShownFor === job.id) return;
   state.alertShownFor = job.id;
-  $("#alert-findings").innerHTML = findingsHtml(job.triage.findings.filter((f) => f.level === "bad"));
+  $("#alert-findings").innerHTML = findingsHtml(job.scan.findings.filter((f) => f.level === "bad"));
   alertSection.classList.remove("hidden");
   progressStage.textContent = "Waiting for your decision";
 }
@@ -435,19 +455,19 @@ function card(label, value, extraClass = "", style = "") {
     <div class="metric-value ${extraClass}" style="${style}">${value}</div></div>`;
 }
 
-function showTriage(t) {
-  triageSection.classList.remove("hidden");
-  const verdict = $("#triage-verdict");
+function showScan(t) {
+  scanSection.classList.remove("hidden");
+  const verdict = $("#scan-verdict");
   verdict.textContent = t.verdict.toUpperCase();
   verdict.className = `verdict ${t.verdict}`;
   const bad = t.bad_sectors.length;
-  $("#triage-cards").innerHTML =
+  $("#scan-cards").innerHTML =
     card("Bad sectors found", bad.toLocaleString(), "", `color:${bad ? "var(--bad)" : "var(--good)"}`) +
     card("Probe read speed", formatSpeed(t.read_speed), "small") +
     card("Est. imaging time", formatDuration(t.estimated_seconds), "small") +
     card("SMART", t.smart && t.smart.available ? (t.smart.issues.length ? "Defects" : "Healthy") : "N/A", "small",
       t.smart && t.smart.available ? `color:${t.smart.issues.length ? "var(--bad)" : "var(--good)"}` : "");
-  $("#triage-findings").innerHTML = findingsHtml(t.findings);
+  $("#scan-findings").innerHTML = findingsHtml(t.findings);
 
   const smartDetails = $("#smart-details");
   const attrs = (t.smart && t.smart.attributes) || [];
@@ -481,6 +501,7 @@ function showResults(job) {
   }
   $("#hash-table").innerHTML = `<table class="meta-table">${rows}</table>`;
   $("#output-files").textContent = [...r.paths, r.log_path].filter(Boolean).join("\n");
+  state.lastImagePath = r.paths[0] || null;
 }
 
 // ---------- Reports ----------
@@ -496,6 +517,15 @@ async function reportAction(btn, method, ...args) {
     btn.disabled = false;
   }
 }
+
+// Hand the finished image to the Triage tab (E01 or DD; the first segment opens the whole set).
+$("#triage-handoff-btn").addEventListener("click", () => {
+  const first = state.lastImagePath;
+  if (!first) return;
+  setMode("triage");
+  window.triageImage(first);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
 
 $("#report-view-btn").addEventListener("click", (e) => reportAction(e.currentTarget, "view_report"));
 $("#report-html-btn").addEventListener("click", (e) => reportAction(e.currentTarget, "save_report", "html"));

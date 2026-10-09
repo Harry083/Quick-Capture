@@ -4,6 +4,10 @@ A desktop application for **fast forensic imaging** of a disk, partition or volu
 **DD** (raw). It checks the device for bad sectors before imaging. A healthy drive is imaged straight away. If
 the drive has problems, you're alerted and asked whether to continue.
 
+A second tab, **Triage**, opens any E01 or raw image, whether Quick Capture made it or not. Within seconds it
+shows the **OS**, the **device** it came from, the **system users** and the **last file each user saved**. It
+reads metadata only and never indexes or hashes the whole image. See [Triage](#triage) below.
+
 It opens in its own native window, using the operating system's web engine through
 [pywebview](https://pywebview.flowrl.com/) (Edge WebView2 on Windows, WebKit on macOS, WebKitGTK or Qt on
 Linux). **No web server runs and no network port is opened**: the window's JavaScript calls the Python
@@ -72,7 +76,12 @@ PyInstaller builds for the OS it runs on, so build the Windows `.exe` on Windows
 
 ## Workflow
 
-The page has three boxes: **Source** and **Scan** side by side, and **Image details** below them.
+The two tabs under the title switch between **Capture** (imaging a device) and **Triage** (examining an
+image). The app remembers which tab you used last.
+
+### Capture
+
+The Capture tab has three boxes: **Source** and **Scan** side by side, and **Image details** below them.
 
 1. **Source**: choose a device from the list, or type a path. The **Physical / Logical** switch filters the
    list: physical shows whole drives, logical shows partitions and volumes (drive letters on Windows).
@@ -91,6 +100,8 @@ The page has three boxes: **Source** and **Scan** side by side, and **Image deta
    (`<name>.txt`) written next to the image. **View Report** opens the HTML report in its own window.
    **Save HTML** / **Save JSON** ask where to save it.
 
+When it finishes, **Triage this image** opens the new image in the Triage tab and starts straight away.
+
 ### Scan modes
 
 | Mode | What it reads | Typical time |
@@ -101,6 +112,58 @@ The page has three boxes: **Source** and **Scan** side by side, and **Image deta
 
 Sampled scans can miss isolated bad sectors, but SMART usually flags a drive that's degrading. The imager
 does not stop or retry on bad sectors either way (see below).
+
+## Triage
+
+The Triage tab is for a fast first look at an image. It only reads image files, so it works even if you
+declined the Administrator prompt.
+
+1. **Image**: type a path or click **Browse…**, then pick the first segment (`.E01`). The rest of the set
+   (`.E02` … `.EAA` …) is found automatically. Raw `dd` / `.img` / `.raw` files and split `.001` sets also
+   work, from any tool. The status line shows the size and segment count. Badges show the acquisition header:
+   case, examiner, source drive and acquired date.
+2. **Triage**: one click. Progress shows which partition is being read.
+3. **Results**: summary cards (OS, device, users, last saved), then the system, users and last-saved panels.
+   Findings list encrypted volumes, damaged chunks and anything that wasn't examined. The image panel shows
+   the stored hashes, acquisition header and partition table. A dual-boot image gets one tab per OS.
+   **View Report** / **Save HTML** / **Save JSON** work as they do for an acquisition.
+
+### What it reads
+
+| Source | Windows (NTFS) | Linux (ext2/3/4) |
+|---|---|---|
+| OS | `SOFTWARE\Microsoft\Windows NT\CurrentVersion` (build ≥ 22000 is reported as Windows 11) | `/etc/os-release`, `/etc/lsb-release`, `/boot/vmlinuz-*` |
+| Device | `SYSTEM`: ComputerName, Tcpip, TimeZoneInformation, Windows\ShutdownTime, SystemInformation / HardwareConfig | `/etc/hostname`, `/etc/timezone` or the `/etc/localtime` link, superblock mount/write times |
+| Users | `SAM` (names, F and V records), `SOFTWARE\...\ProfileList`, each `NTUSER.DAT` RecentDocs | `/etc/passwd` (uid 0 and 1000+), `/var/log/wtmp` |
+| Last saved | one pass over the MFT: `$STANDARD_INFORMATION` modified time, under `\Users\<name>\` | walk of each home folder: inode modified time |
+
+**Noise is filtered out.** That covers anything under `AppData`, `Default` / `All Users` profiles, dot-files and
+dot-folders on Linux, and files that the OS or apps rewrite on their own: `NTUSER.DAT*`, `desktop.ini`,
+`thumbs.db`, Office `~$` lock files, `.tmp`, transaction logs. What's left is what a user saved.
+
+The MFT pass keeps only folder names and the newest three files per folder, so memory grows with the number
+of folders, not files. It runs at about 250,000 records per second, so a typical Windows volume takes a few
+seconds.
+
+### Image formats
+
+- **E01**: EnCase 1–7, FTK, linen and libewf output, compressed or not, any number of segments. Ex01 (EWF2)
+  isn't supported yet. Chunks are decompressed on demand and cached, so only the parts triage reads are ever
+  inflated. The stored MD5/SHA-1 are shown as recorded. They are **not** recomputed.
+- **Raw**: single files or `.001`, `.002` … sets.
+- **Partitions**: GPT, MBR (including extended/logical partitions), or a volume image with no partition table.
+- **Filesystems examined**: NTFS and ext2/3/4. BitLocker and LUKS are detected and flagged as encrypted. APFS,
+  HFS+, XFS, Btrfs, ReFS and LVM are named but not examined.
+
+### Triage notes
+
+- Images are opened **read-only**, and nothing is written next to them unless you save a report.
+- Times are shown in **UTC**. The system's own time zone and UTC offset are in the Device panel.
+- "Last saved" is the `$STANDARD_INFORMATION` modified time, the one Explorer shows. It can be changed by
+  timestomping, so confirm anything important with a full examination.
+- Registry hives are read without replaying their `.LOG1`/`.LOG2` transaction logs. Values changed moments
+  before shutdown may be newer in the logs.
+- NTFS-compressed or EFS-encrypted hives can't be read, and are reported as such.
 
 ## Why it's fast
 
@@ -166,14 +229,28 @@ quick-capture/
 ├── backend/
 │   ├── api.py            the methods the window calls (window.pywebview.api.*), with input validation
 │   ├── devices.py        device enumeration (Windows/Linux/macOS) and read-only raw access
-│   ├── triage.py         the scan: SMART, speed probe, sampled / full read
+│   ├── scan.py           the pre-imaging scan: SMART, speed probe, sampled / full read
 │   ├── imager.py         threaded read → hash → write pipeline, bad-sector handling, verification
 │   ├── ewf.py            E01 (EnCase 6) writer + reader
 │   ├── jobs.py           background job manager (scan → decision → image → verify)
 │   ├── report.py         HTML/JSON report and the .txt acquisition log
-│   └── file_browser.py   folder lookup (free space) for the output folder
-├── frontend/             vanilla HTML/CSS/JS UI; styles.css + fonts/ are the shared tool style kit
-├── tests/                pytest round-trip tests (python -m pytest tests)
+│   ├── file_browser.py   folder lookup (free space) for the output folder
+│   │
+│   │   Triage tab
+│   ├── triage.py         the triage itself: image → partitions → OS volumes → findings
+│   ├── triage_jobs.py    background triage jobs (one thread each, polled by the page)
+│   ├── triage_report.py  triage HTML/JSON report
+│   ├── image.py          random-access E01 and raw readers
+│   ├── volumes.py        GPT / MBR parsing and filesystem detection
+│   ├── ntfs.py           read-only NTFS: records, runs, attribute lists, $I30 indexes, MFT sweep
+│   ├── regf.py           read-only registry hive parser
+│   ├── windows.py        OS, device, users and last saved file from a Windows volume
+│   ├── ext.py            read-only ext2/3/4: inodes, extents, block maps, directories, symlinks
+│   └── linux.py          OS, device, users and last saved file from a Linux root volume
+├── frontend/             vanilla HTML/CSS/JS UI (app.js = Capture tab, triage.js = Triage tab);
+│                         styles.css + fonts/ are the shared tool style kit
+├── tests/                pytest tests (python -m pytest tests); triage tests build a GPT disk with Windows,
+│                         Linux and BitLocker partitions (NTFS part needs mkntfs + ntfs-3g + root)
 ├── app.py                entry point: opens the native window (no server, no port)
 ├── QuickCapture.spec     PyInstaller one-file build (Windows .exe requests Administrator)
 ├── quickcapture.ico/.png the app icon

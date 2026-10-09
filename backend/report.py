@@ -69,7 +69,7 @@ def build_report_context(job) -> dict:
         "source": opts["source"],
         "device": job.device,
         "options": {k: v for k, v in opts.items() if k != "case"},
-        "triage": job.triage,
+        "scan": job.scan,
         "result": job.result,
     }
 
@@ -78,31 +78,31 @@ def _rows(pairs) -> str:
     return "".join(f"<tr><td>{_esc(k)}</td><td>{_esc(v)}</td></tr>" for k, v in pairs if v not in (None, ""))
 
 
-def _triage_html(triage: dict | None) -> str:
-    if not triage:
+def _scan_html(scan: dict | None) -> str:
+    if not scan:
         return "<p class='muted'>No pre-imaging scan was run for this acquisition.</p>"
     items = "".join(
         f"<li class='finding finding-{_esc(f['level'])}'><strong>{_esc(f['title'])}</strong> — {_esc(f['detail'])}</li>"
-        for f in triage.get("findings", [])
+        for f in scan.get("findings", [])
     )
-    smart = triage.get("smart") or {}
+    smart = scan.get("smart") or {}
     attrs = "".join(
         f"<tr><td>{_esc(a['name'])}</td><td{' class=bad' if a.get('flag') else ''}>{_esc(a['value'])}</td></tr>"
         for a in smart.get("attributes", [])
     )
-    bad = triage.get("bad_sectors", [])
-    verdict = triage.get("verdict", "-")
+    bad = scan.get("bad_sectors", [])
+    verdict = scan.get("verdict", "-")
     return f"""
 <div class="verdict verdict-{_esc(verdict)}">Verdict: {_esc(verdict.upper())}</div>
 <ul class="findings">{items}</ul>
 <table>{_rows([
-    ("Mode", triage.get("mode")),
-    ("Probe read speed", fmt_speed(triage.get("read_speed"))),
-    ("Estimated imaging time", fmt_duration(triage.get("estimated_seconds"))),
-    ("Bytes scanned", fmt_bytes(triage.get("scanned_bytes"))),
+    ("Mode", scan.get("mode")),
+    ("Probe read speed", fmt_speed(scan.get("read_speed"))),
+    ("Estimated imaging time", fmt_duration(scan.get("estimated_seconds"))),
+    ("Bytes scanned", fmt_bytes(scan.get("scanned_bytes"))),
     ("Bad sectors found", len(bad)),
     ("First bad LBAs", ", ".join(str(x) for x in bad[:20]) if bad else ""),
-    ("Duration", fmt_duration(triage.get("duration"))),
+    ("Duration", fmt_duration(scan.get("duration"))),
 ])}</table>
 {f"<h3 style='margin-top:14px'>SMART ({_esc(smart.get('device', ''))})</h3><table>{attrs}</table>" if attrs else ""}
 """
@@ -251,7 +251,7 @@ def generate_report_html(job) -> str:
 
   <div class="panel">
     <h2>Scan</h2>
-    {_triage_html(ctx['triage'])}
+    {_scan_html(ctx['scan'])}
   </div>
 
   {f'''<div class="panel"><h2>Unreadable sectors (zero-filled)</h2><table>{bad_rows}</table></div>''' if bad_rows else ""}
@@ -273,7 +273,7 @@ def write_acquisition_log(job) -> str:
     res = ctx["result"]
     case = ctx["case"]
     dev = ctx["device"] or {}
-    triage = ctx["triage"]
+    scan = ctx["scan"]
     lines = [
         f"Created by {ctx['tool']} (Quick Capture)",
         f"Host: {ctx['host']['node']} ({ctx['host']['platform']})",
@@ -294,9 +294,9 @@ def write_acquisition_log(job) -> str:
         "",
         "[Scan]",
     ]
-    if triage:
-        lines.append(f"Mode:            {triage['mode']}   Verdict: {triage['verdict'].upper()}")
-        for f in triage["findings"]:
+    if scan:
+        lines.append(f"Mode:            {scan['mode']}   Verdict: {scan['verdict'].upper()}")
+        for f in scan["findings"]:
             lines.append(f"  - [{f['level']}] {f['title']}: {f['detail']}")
     else:
         lines.append("Skipped")
