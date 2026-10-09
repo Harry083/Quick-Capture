@@ -8,6 +8,10 @@ A second tab, **Triage**, opens any E01 or raw image, whether Quick Capture made
 shows the **OS**, the **device** it came from, the **system users** and the **last file each user saved**. It
 reads metadata only and never indexes or hashes the whole image. See [Triage](#triage) below.
 
+**Clarity**, a companion app in [`clarity/`](clarity/README.md), does forensic **image and video enhancement**
+in the same style: perspective correction, levels, deblurring, stabilisation, frame integration, super-resolution
+and more, with a report that explains every filter applied.
+
 It opens in its own native window, using the operating system's web engine through
 [pywebview](https://pywebview.flowrl.com/) (Edge WebView2 on Windows, WebKit on macOS, WebKitGTK or Qt on
 Linux). **No web server runs and no network port is opened**: the window's JavaScript calls the Python

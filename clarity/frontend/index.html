@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Clarity</title>
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="clarity.css" />
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#">
+      <span class="brand-mark">CL</span>
+      <span class="brand-text">Clarity</span>
+    </a>
+    <nav class="primary-nav">
+      <ul>
+        <li><a href="https://harrylsmallwood.com/clarity" target="_blank" rel="noopener">Guide</a></li>
+        <li><a class="nav-cta" href="https://github.com/Harry083/Quick-Capture/tree/main/clarity" target="_blank" rel="noopener">GitHub ↗</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap wide">
+  <section class="hero compact">
+    <p class="hero-eyebrow">CL · running locally, your evidence never leaves this machine</p>
+    <h1>Clarity</h1>
+    <p class="lede">Forensic image and video enhancement. Build a chain of filters (levels, perspective, deblur,
+      stabilisation, frame integration, super-resolution and more), compare before and after, measure, and export
+      with a report that explains every step.</p>
+    <div class="tabs mode-tabs" id="mode-tabs" role="tablist">
+      <button type="button" role="tab" data-mode="enhance" aria-selected="true"><span class="mode-icon" aria-hidden="true">◐</span>Enhance <span class="hint">image or video</span></button>
+      <button type="button" role="tab" data-mode="guide" aria-selected="false"><span class="mode-icon" aria-hidden="true">≡</span>Filter guide <span class="hint">what each filter does</span></button>
+    </div>
+  </section>
+
+  <div id="enhance-view" class="mode-view">
+
+    <!-- 01 · Source -->
+    <section class="panel picker-card" id="source-panel">
+      <div class="card-title-row">
+        <div class="panel-title">01 · Source</div>
+        <div class="title-actions">
+          <button id="open-project" class="btn small-btn" type="button">Open project…</button>
+          <button id="save-project" class="btn small-btn" type="button" disabled>Save project</button>
+        </div>
+      </div>
+      <h2>Evidence <span class="hint">an image, a video, or several images as a sequence · opened read-only</span></h2>
+      <div class="path-input-row">
+        <input type="text" id="source-input" class="path-input" placeholder="D:\Case-001\camera3.mp4  or  /evidence/plate.jpg" />
+        <button class="btn browse-btn" id="browse-media" type="button">Browse…</button>
+        <button class="btn browse-btn" id="browse-sequence" type="button" title="Pick several images to treat as frames, e.g. photos of the same object for super-resolution">Image sequence…</button>
+      </div>
+      <div class="file-status" id="source-status"></div>
+      <div id="source-meta" class="source-meta hidden"></div>
+    </section>
+
+    <div id="workspace" class="workspace hidden">
+      <!-- 02 · Viewer -->
+      <section class="panel viewer-panel">
+        <div class="card-title-row">
+          <div class="panel-title">02 · Viewer</div>
+          <span id="render-pill" class="pill">ready</span>
+        </div>
+        <div class="viewer-toolbar">
+          <div class="tabs" id="view-mode" role="tablist">
+            <button type="button" role="tab" data-view="split" aria-selected="true">Split</button>
+            <button type="button" role="tab" data-view="after" aria-selected="false">After</button>
+            <button type="button" role="tab" data-view="before" aria-selected="false">Before</button>
+            <button type="button" role="tab" data-view="side" aria-selected="false">Side by side</button>
+          </div>
+          <label class="zoom-label">Zoom
+            <select id="zoom-select">
+              <option value="fit" selected>Fit</option>
+              <option value="0.5">50%</option>
+              <option value="1">100%</option>
+              <option value="2">200%</option>
+              <option value="4">400%</option>
+              <option value="8">800%</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="pick-banner" class="pick-banner hidden">
+          <span id="pick-text"></span>
+          <span class="pick-actions">
+            <button id="pick-clear" class="btn small-btn" type="button">Clear</button>
+            <button id="pick-done" class="btn btn-primary small-btn" type="button">Done</button>
+          </span>
+        </div>
+
+        <div class="viewer-stage" id="viewer-stage" data-zoom="fit" data-view="split">
+          <div class="viewer-grid">
+            <div class="viewer-box before-box">
+              <img id="before-side" alt="Original frame" />
+              <span class="corner-label">Before</span>
+            </div>
+            <div class="viewer-box main-box" id="main-box">
+              <img id="after-img" alt="Processed frame" />
+              <img id="before-img" class="before-overlay" alt="Original frame" />
+              <svg id="overlay" class="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
+              <div id="split-handle" class="split-handle"><span>‹ ›</span></div>
+              <span class="corner-label left">Before</span>
+              <span class="corner-label right">After</span>
+            </div>
+          </div>
+        </div>
+        <div class="viewer-foot">
+          <div id="transport" class="transport hidden">
+            <button class="btn icon-btn" id="first-frame" type="button" title="First frame">⏮</button>
+            <button class="btn icon-btn" id="prev-frame" type="button" title="Previous frame (←)">◀</button>
+            <button class="btn icon-btn" id="play-btn" type="button" title="Play / pause (space)">▶</button>
+            <button class="btn icon-btn" id="next-frame" type="button" title="Next frame (→)">▶|</button>
+            <input type="range" id="frame-slider" min="0" max="0" value="0" />
+            <input type="number" id="frame-input" class="path-input frame-input" min="0" value="0" title="Frame number" />
+            <span id="frame-time" class="frame-time mono"></span>
+          </div>
+          <div class="viewer-info">
+            <canvas id="histogram" width="256" height="64" title="Histogram of the processed frame"></canvas>
+            <div id="viewer-caption" class="caption"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 03 · Filters -->
+      <section class="panel chain-panel">
+        <div class="card-title-row">
+          <div class="panel-title">03 · Filters</div>
+          <span id="chain-count" class="pill">empty</span>
+        </div>
+        <h2>Processing chain <span class="hint">applied top to bottom</span></h2>
+        <div class="add-row">
+          <select id="add-select" aria-label="Filter to add"></select>
+          <button id="add-btn" class="btn btn-primary small-btn" type="button">+ Add</button>
+        </div>
+        <div id="chain-list" class="chain-list">
+          <p class="placeholder">Add a filter to start. Nothing is changed in the source.</p>
+        </div>
+        <div class="chain-foot">
+          <button id="chain-clear" class="btn small-btn" type="button">Clear chain</button>
+          <label class="check"><input type="checkbox" id="bypass-all" /><span>Bypass all</span></label>
+        </div>
+      </section>
+    </div>
+
+    <!-- 04 · Measure -->
+    <details class="panel case-details hidden" id="measure-panel">
+      <summary>
+        <div class="panel-title">04 · Measure</div>
+        <h2>Measurements <span class="hint">distances and speed on the processed image</span></h2>
+      </summary>
+      <p class="guide">Rectify the plane first (lens distortion, perspective). Then <strong>set the scale</strong> by
+        drawing along something of known length in that plane, and measure other distances in the same plane. For
+        <strong>speed</strong>, mark a point on the vehicle in one frame, move to a later frame, and mark the same
+        point again.</p>
+      <div class="measure-tools">
+        <div class="tabs" id="measure-tools" role="tablist">
+          <button type="button" data-tool="scale" aria-selected="false">Set scale</button>
+          <button type="button" data-tool="distance" aria-selected="false">Distance</button>
+          <button type="button" data-tool="speed" aria-selected="false">Speed</button>
+        </div>
+        <label class="model-select-label inline">Reference length
+          <span class="inline-fields">
+            <input type="number" id="scale-length" class="path-input num" min="0" step="any" value="1" />
+            <select id="scale-unit"><option value="m">m</option><option value="cm">cm</option><option value="mm">mm</option><option value="ft">ft</option><option value="in">in</option></select>
+          </span>
+        </label>
+      </div>
+      <div id="measure-hint" class="file-status"></div>
+      <div id="measure-list" class="metadata-panel"><p class="placeholder">No measurements yet.</p></div>
+    </details>
+
+    <!-- 05 · Case -->
+    <details class="panel case-details hidden" id="case-panel">
+      <summary>
+        <div class="panel-title">05 · Case</div>
+        <h2>Case details <span class="hint">shown in the report and saved in the project</span></h2>
+      </summary>
+      <div class="case-grid">
+        <label class="field-label">Case number<input type="text" class="path-input full" data-case="case_number" /></label>
+        <label class="field-label">Exhibit / item<input type="text" class="path-input full" data-case="exhibit" /></label>
+        <label class="field-label">Examiner<input type="text" class="path-input full" data-case="examiner" /></label>
+        <label class="field-label">Organisation<input type="text" class="path-input full" data-case="organisation" /></label>
+        <label class="field-label wide">Request<input type="text" class="path-input full" data-case="request" placeholder="e.g. Enhance the registration plate of the silver hatchback at 14:02:31" /></label>
+        <label class="field-label wide">Notes<input type="text" class="path-input full" data-case="notes" /></label>
+      </div>
+    </details>
+
+    <!-- 06 · Output -->
+    <section class="panel hidden" id="output-panel">
+      <div class="panel-title">06 · Output</div>
+      <h2>Export and report <span class="hint">outputs are hashed and listed in the report</span></h2>
+      <div class="output-grid">
+        <div class="output-box">
+          <h3>Frame</h3>
+          <div class="controls-row compact">
+            <label class="model-select-label">Format
+              <select id="image-format">
+                <option value=".png">PNG (lossless)</option>
+                <option value=".tif">TIFF (lossless)</option>
+                <option value=".jpg">JPEG (lossy)</option>
+              </select>
+            </label>
+            <label class="model-select-label">Bit depth
+              <select id="image-depth"><option value="8">8-bit</option><option value="16">16-bit (PNG/TIFF)</option></select>
+            </label>
+          </div>
+          <button id="export-image" class="btn" type="button"><span class="btn-icon" aria-hidden="true">↓</span>Export frame</button>
+        </div>
+        <div class="output-box" id="video-export-box">
+          <h3>Video</h3>
+          <div class="controls-row compact">
+            <label class="model-select-label">Format <select id="video-format"></select></label>
+            <label class="model-select-label">From frame
+              <span class="inline-fields"><input type="number" id="range-start" class="path-input num" min="0" value="0" /><button class="btn icon-btn" id="range-start-here" type="button" title="Use the current frame">⇤</button></span>
+            </label>
+            <label class="model-select-label">To frame
+              <span class="inline-fields"><input type="number" id="range-end" class="path-input num" min="0" value="0" /><button class="btn icon-btn" id="range-end-here" type="button" title="Use the current frame">⇥</button></span>
+            </label>
+          </div>
+          <button id="export-video" class="btn" type="button"><span class="btn-icon" aria-hidden="true">↓</span>Export video</button>
+        </div>
+        <div class="output-box">
+          <h3>Report</h3>
+          <p class="inline-note">Source hashes, the before/after frame, every step with its parameters and an
+            explanation, measurements, exports and a reference of all filters.</p>
+          <div class="report-actions">
+            <button id="report-view" class="btn btn-primary report-btn" type="button"><span class="btn-icon" aria-hidden="true">↗</span>View report</button>
+            <button id="report-html" class="btn report-btn" type="button">Save HTML</button>
+            <button id="report-json" class="btn report-btn" type="button">Save JSON</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="progress-section" class="progress-section hidden">
+        <div class="progress-head">
+          <span id="progress-stage" class="progress-stage">Starting…</span>
+          <span class="progress-actions"><span id="progress-time" class="progress-speed"></span>
+            <button id="cancel-btn" class="btn cancel-btn small-btn" type="button">Cancel</button></span>
+        </div>
+        <div class="progress-bar-track"><div id="progress-bar-fill" class="progress-bar-fill"></div></div>
+        <div class="progress-label" id="progress-label"></div>
+      </div>
+      <div id="exports-list" class="metadata-panel hidden"></div>
+    </section>
+
+    <section id="error-section" class="error-section hidden"></section>
+  </div>
+
+  <div id="guide-view" class="mode-view hidden">
+    <section class="panel">
+      <div class="card-title-row">
+        <div class="panel-title">Filter guide</div>
+        <div class="title-actions">
+          <button id="reference-view" class="btn small-btn" type="button">↗ Open as report</button>
+          <button id="reference-save" class="btn small-btn" type="button">Save HTML</button>
+        </div>
+      </div>
+      <h2>Every filter, explained <span class="hint">the same text appears in reports</span></h2>
+      <div class="path-input-row">
+        <input type="search" id="guide-search" class="path-input" placeholder="Search: plate, backlit, CCTV, fingerprint, interlaced…" />
+      </div>
+      <div class="chips guide-chips" id="guide-cats"></div>
+      <div id="guide-list" class="guide-list"></div>
+    </section>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap wide">
+    <span>Clarity · a <a href="https://harrylsmallwood.com/tools" target="_blank" rel="noopener">Harry Smallwood tool</a></span>
+    <span class="mono" id="footer-version">desktop · offline</span>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+<script src="chain.js"></script>
+<script src="viewer.js"></script>
+<script src="measure.js"></script>
+<script src="output.js"></script>
+<script src="guide.js"></script>
+</body>
+</html>
