@@ -1042,3 +1042,77 @@ li[data-level="ok"] .level { color: var(--good); }
   .case-grid { grid-template-columns: 1fr; }
   .details-grid .details-field + .details-field { margin-top: 1rem; }
 }
+
+/* ---------- Capture / Triage mode tabs ---------- */
+.mode-tabs { margin: 1.8rem 0 0; }
+.mode-tabs button { font-size: 0.95rem; padding: 0.7em 1.4em; }
+.mode-tabs .hint { font-weight: 400; font-size: 0.78rem; margin-left: 0.4em; opacity: 0.75; }
+.mode-icon { font-size: 0.7em; margin-right: 0.55em; vertical-align: 0.1em; }
+.handoff { display: flex; justify-content: flex-end; align-items: center; gap: 0.8rem; margin-top: 1.2rem; }
+
+/* =========================================================
+   Triage tab
+   ========================================================= */
+.image-meta { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.8rem; }
+#triage-view .progress-stage { text-transform: none; }
+#triage-view .progress-stage::first-letter { text-transform: uppercase; }
+.results-header h2 .hint { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-faint); font-weight: 400; margin-left: 0.4rem; }
+.score-card .metric-value.text {
+  font-size: clamp(1.2rem, 1rem + 0.6vw, 1.5rem);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.score-card .metric-sub { overflow-wrap: anywhere; }
+#tr-saved-files { margin-top: 0; }
+
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.two-col .metadata-panel { max-height: none; }
+.volume-panel { margin-top: 14px; max-height: none; }
+
+.grid-table th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  padding: 0 0.8em 0.5em 0;
+  border-bottom: 1px solid var(--border-strong);
+}
+.grid-table td,
+.grid-table td:first-child {
+  width: auto;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  white-space: normal;
+  padding-right: 0.8em;
+}
+.grid-table td.mono { font-family: var(--font-mono); font-size: 0.78rem; }
+.grid-table .nowrap { white-space: nowrap; }
+.users-table td:first-child { min-width: 11rem; }
+.path { overflow-wrap: anywhere; word-break: break-all; }
+
+.latest-file {
+  background: rgba(232, 121, 59, 0.08);
+  border: 1px solid rgba(232, 121, 59, 0.35);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: 1.1rem 1.3rem;
+}
+.latest-file .metric-name {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-2);
+  margin-bottom: 0.5rem;
+}
+.latest-path { font-size: 1.05rem; color: var(--text); overflow-wrap: anywhere; word-break: break-all; }
+
+@media (max-width: 760px) {
+  .two-col { grid-template-columns: 1fr; }
+}

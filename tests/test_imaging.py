@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backend import devices, ewf, imager, triage  # noqa: E402
+from backend import devices, ewf, imager, scan  # noqa: E402
 
 MiB = 1024 * 1024
 
@@ -112,13 +112,13 @@ def test_bad_sectors_are_zero_filled_and_logged(source: Path, tmp_path: Path, mo
     assert res["hashes"]["md5"] == hashlib.md5(expected).hexdigest()
     _ewfverify(res["paths"][0])
 
-    t = triage.run_triage(str(source), "full", lambda p: None, threading.Event())
+    t = scan.run_scan(str(source), "full", lambda p: None, threading.Event())
     assert t["verdict"] == "attention"
     assert sorted(t["bad_sectors"]) == sorted(bad_lbas)
 
 
-def test_triage_clear(source: Path) -> None:
-    t = triage.run_triage(str(source), "quick", lambda p: None, threading.Event())
+def test_scan_clear(source: Path) -> None:
+    t = scan.run_scan(str(source), "quick", lambda p: None, threading.Event())
     assert t["verdict"] == "clear"
     assert t["bad_sectors"] == []
     assert t["read_speed"] > 0

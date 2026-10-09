@@ -21,9 +21,12 @@ import webview
 
 from . import devices, file_browser, imager
 from . import report as report_mod
-from . import triage as triage_mod
+from . import scan as scan_mod
+from . import triage_report
 from .ewf import COMPRESSION_LEVELS
+from .image import ImageError, open_image
 from .jobs import job_manager
+from .triage_jobs import triage_jobs
 
 BLOCK_SIZES_MB = (1, 2, 4, 8, 16, 32)
 IO_DEPTHS = (1, 2, 4, 8)
@@ -37,8 +40,8 @@ ACQUIRE_DEFAULTS = {
     "io_depth": 2,  # reads kept in flight at once
     "compression": "fast",
     "segment_size_mb": 0,  # 0 = no split
-    "triage_mode": "quick",
-    "triage_only": False,
+    "scan_mode": "quick",
+    "scan_only": False,
     "verify": False,
 }
 
@@ -47,6 +50,7 @@ _FD = getattr(webview, "FileDialog", None)
 OPEN_DIALOG = _FD.OPEN if _FD else webview.OPEN_DIALOG
 FOLDER_DIALOG = _FD.FOLDER if _FD else webview.FOLDER_DIALOG
 SAVE_DIALOG = _FD.SAVE if _FD else webview.SAVE_DIALOG
+IMAGE_TYPES = ("Evidence images (*.E01;*.e01;*.dd;*.raw;*.img;*.001;*.bin)", "All files (*.*)")
 
 
 class ApiError(Exception):
@@ -61,7 +65,7 @@ def _result(fn):
         try:
             # round-trip through JSON so anything the old API serialised (paths, tuples) arrives the same way
             return {"ok": True, "data": json.loads(json.dumps(fn(self, *args, **kwargs), default=str))}
-        except ApiError as exc:
+        except (ApiError, ImageError) as exc:
             return {"ok": False, "error": str(exc)}
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
@@ -114,14 +118,14 @@ class Api:
             "ok": True,
             "admin": devices.is_admin(),
             "platform": sys.platform,
-            "smartctl": triage_mod.find_smartctl(),
+            "smartctl": scan_mod.find_smartctl(),
             "cpu_count": os.cpu_count(),
         }
 
     @_result
     def options(self):
         return {
-            "triage_modes": {k: v["label"] for k, v in triage_mod.TRIAGE_MODES.items()},
+            "scan_modes": {k: v["label"] for k, v in scan_mod.SCAN_MODES.items()},
             "block_sizes_mb": BLOCK_SIZES_MB,
             "io_depths": IO_DEPTHS,
             "compression": list(COMPRESSION_LEVELS),
@@ -154,10 +158,12 @@ class Api:
 
     @_result
     def pick(self, mode: str = "file", start: str = ""):
-        """Open the operating system's own file or folder dialog; returns {"path": ""} if cancelled."""
+        """Open the operating system's own file or folder dialog; returns {"path": ""} if cancelled.
+        mode "image" is a file dialog filtered to evidence images (the Triage tab)."""
         start_dir = start if os.path.isdir(start) else os.path.dirname(start)
         kind = FOLDER_DIALOG if mode == "folder" else OPEN_DIALOG
-        chosen = self._window.create_file_dialog(kind, directory=start_dir if os.path.isdir(start_dir) else "")
+        extra = {"file_types": IMAGE_TYPES} if mode == "image" else {}
+        chosen = self._window.create_file_dialog(kind, directory=start_dir if os.path.isdir(start_dir) else "", **extra)
         return {"path": _first_path(chosen)}
 
     # ---------- acquisition ----------
@@ -176,8 +182,8 @@ class Api:
             raise ApiError("Another acquisition is already running")
         if req["format"] not in ("e01", "dd"):
             raise ApiError(f"Unknown format: {req['format']}")
-        if req["triage_mode"] not in triage_mod.TRIAGE_MODES:
-            raise ApiError(f"Unknown scan mode: {req['triage_mode']}")
+        if req["scan_mode"] not in scan_mod.SCAN_MODES:
+            raise ApiError(f"Unknown scan mode: {req['scan_mode']}")
         if req["block_size_mb"] not in BLOCK_SIZES_MB:
             raise ApiError(f"Block size must be one of {BLOCK_SIZES_MB} MiB")
         if req["io_depth"] not in IO_DEPTHS:
@@ -186,8 +192,8 @@ class Api:
             raise ApiError(f"Unknown compression: {req['compression']}")
         if req["segment_size_mb"] and req["segment_size_mb"] < MIN_SEGMENT_MB:
             raise ApiError(f"Segment size must be at least {MIN_SEGMENT_MB} MiB")
-        if req["triage_only"] and req["triage_mode"] == "skip":
-            req["triage_mode"] = "quick"
+        if req["scan_only"] and req["scan_mode"] == "skip":
+            req["scan_mode"] = "quick"
         if not req["hashes"]:
             raise ApiError("Select at least one hash algorithm")
         unknown = set(req["hashes"]) - set(imager.HASH_ALGOS)
@@ -201,7 +207,7 @@ class Api:
         except OSError as exc:
             raise ApiError(f"Cannot open source: {exc}") from exc
 
-        if not req["triage_only"]:
+        if not req["scan_only"]:
             if not SAFE_NAME.match(req["name"]):
                 raise ApiError("Image name may only contain letters, digits, spaces and . _ ( ) -")
             out_dir = Path(req["output_dir"])
@@ -278,6 +284,81 @@ class Api:
             SAVE_DIALOG,
             directory=default_dir if os.path.isdir(default_dir) else "",
             save_filename=filename,
+            file_types=(f"{kind.upper()} file (*.{kind})", "All files (*.*)"),
+        )
+        path = _first_path(chosen)
+        if not path:
+            return {"path": ""}
+        try:
+            Path(path).write_text(content, encoding="utf-8")
+        except OSError as exc:
+            raise ApiError(f"Could not save the report: {exc}") from exc
+        return {"path": path}
+
+    # ---------- triage (the Triage tab: OS, device, users and last saved file from an image) ----------
+    def _finished_triage(self, job_id: str):
+        job = triage_jobs.get(job_id)
+        if job is None:
+            raise ApiError("Triage job not found")
+        if job.status != "done" or not job.result:
+            raise ApiError(f"No triage result for this job (status: {job.status})")
+        return job
+
+    @_result
+    def image_info(self, path: str):
+        path = str(path or "").strip().strip('"')
+        if not path:
+            raise ApiError("Choose an image first")
+        with open_image(path) as image:
+            return image.info()
+
+    @_result
+    def triage(self, path: str):
+        path = str(path or "").strip().strip('"')
+        if not path:
+            raise ApiError("Choose an image first")
+        if not Path(path).is_file():
+            raise ApiError(f"File not found: {path}")
+        if triage_jobs.active():
+            raise ApiError("A triage is already running")
+        return {"job_id": triage_jobs.start(path).id}
+
+    @_result
+    def triage_job(self, job_id: str):
+        job = triage_jobs.get(job_id)
+        if job is None:
+            raise ApiError("Triage job not found")
+        return job.public_dict()
+
+    @_result
+    def triage_cancel(self, job_id: str):
+        if not triage_jobs.cancel(job_id):
+            raise ApiError("Triage cannot be cancelled")
+        return {"cancelled": True}
+
+    @_result
+    def triage_view_report(self, job_id: str):
+        job = self._finished_triage(job_id)
+        webview.create_window(
+            f"Quick Capture Triage — {Path(job.path).name}",
+            html=triage_report.generate_report_html(job),
+            width=1000, height=900, background_color="#1c2023",
+        )
+        return {"opened": True}
+
+    @_result
+    def triage_save_report(self, job_id: str, kind: str = "html"):
+        """Ask where to save the triage report, then write it. Returns {"path": ""} if cancelled."""
+        job = self._finished_triage(job_id)
+        if kind == "json":
+            content = json.dumps(triage_report.generate_report_json(job), indent=2, default=str)
+        else:
+            kind, content = "html", triage_report.generate_report_html(job)
+        src = Path(job.path)
+        chosen = self._window.create_file_dialog(
+            SAVE_DIALOG,
+            directory=str(src.parent) if src.parent.is_dir() else "",
+            save_filename=f"{src.stem}-triage.{kind}",
             file_types=(f"{kind.upper()} file (*.{kind})", "All files (*.*)"),
         )
         path = _first_path(chosen)
